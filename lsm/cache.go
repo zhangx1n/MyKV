@@ -6,15 +6,12 @@ type cache struct {
 	indexs *utils.MyMap // key fid， value tableBuffer
 	blocks *utils.MyMap // key cacheID_blockOffset  value block []byte
 }
-type tableBuffer struct {
-	t       *table
-	cacheID int64
-}
+
 type blockBuffer struct {
 	b []byte
 }
 
-// Close
+// close
 func (c *cache) close() error {
 	return nil
 }
@@ -24,6 +21,7 @@ func newCache(opt *Options) *cache {
 	return &cache{indexs: utils.NewMap(), blocks: utils.NewMap()}
 }
 
-func (c *cache) addIndex(fid int64, t *table) {
+// TODO fid 使用字符串是不是会有性能损耗
+func (c *cache) addIndex(fid string, t *table) {
 	c.indexs.Set(fid, t)
 }

@@ -2,8 +2,10 @@ package mykv
 
 import "github.com/zhangx1n/MyKV/utils"
 
+// Options 总的配置文件
 type Options struct {
 	ValueThreshold int64
+	WorkDir        string
 }
 
 // NewDefaultOptions 返回默认的options

@@ -1,6 +1,10 @@
 package file
 
-import "os"
+import (
+	"fmt"
+	"github.com/zhangx1n/MyKV/utils"
+	"os"
+)
 
 // MockFile
 type MockFile struct {
@@ -25,11 +29,14 @@ func (m MockFile) Close() error {
 // Options
 type Options struct {
 	Name string
+	Dir  string
 }
 
-// OpenMockFile
+// OpenMockFile mock 文件
 func OpenMockFile(opt *Options) *MockFile {
-	m := &MockFile{}
-	m.f, _ = os.Open(opt.Name)
-	return m
+	var err error
+	lf := &MockFile{}
+	lf.f, err = os.Open(fmt.Sprintf("%s/%s", opt.Dir, opt.Name))
+	utils.Panic(err)
+	return lf
 }
