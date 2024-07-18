@@ -8,11 +8,11 @@ import (
 
 // MemTable
 type memTable struct {
-	wal *file.WalFile
+	wal *file.WalFile // 写到磁盘中的 wal 日志
 	sl  *utils.SkipList
 }
 
-// TODO: mock, need to add real logic
+// todo: mock, need to add real logic
 func NewMemtable() (*memTable, error) {
 	return nil, nil
 }
@@ -52,6 +52,10 @@ func (m *memTable) Size() int64 {
 
 // recovery
 func recovery(opt *Options) (*memTable, []*memTable) {
-	fileOpt := &file.Options{}
+	// TODO 这里需要实现获取mem list
+	fileOpt := &file.Options{
+		Dir:  opt.WorkDir,
+		Name: "00001.mem",
+	}
 	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList()}, []*memTable{}
 }

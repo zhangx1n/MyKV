@@ -4,7 +4,7 @@ import "github.com/zhangx1n/MyKV/utils"
 
 type Stats struct {
 	closer   *utils.Closer
-	EntryNum int64 // 存储的 kv 数据个数
+	EntryNum int64 // 存储多少个kv数据
 }
 
 // Close
@@ -18,6 +18,7 @@ func (s *Stats) StartStats() {
 	for {
 		select {
 		case <-s.closer.Wait():
+			return
 		}
 		// stats logic...
 	}

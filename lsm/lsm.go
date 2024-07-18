@@ -6,9 +6,9 @@ import (
 )
 
 type LSM struct {
-	memTable   *memTable
-	immutables []*memTable
-	levels     *levelManager
+	memTable   *memTable     // 内存中 同时服务于读和写
+	immutables []*memTable   // 内存中 只读
+	levels     *levelManager // 磁盘中
 	option     *Options
 	closer     *utils.Closer
 }
@@ -21,8 +21,10 @@ type Options struct {
 
 // 关闭lsm
 func (lsm *LSM) Close() error {
-	if err := lsm.memTable.close(); err != nil {
-		return err
+	if lsm.memTable != nil {
+		if err := lsm.memTable.close(); err != nil {
+			return err
+		}
 	}
 	for i := range lsm.immutables {
 		if err := lsm.immutables[i].close(); err != nil {
@@ -55,6 +57,7 @@ func (lsm *LSM) StartMerge() {
 	for {
 		select {
 		case <-lsm.closer.Wait():
+			return
 		}
 		// 处理并发的合并过程
 	}
@@ -73,11 +76,15 @@ func (lsm *LSM) Set(entry *codec.Entry) (err error) {
 	if err := lsm.memTable.set(entry); err != nil {
 		return err
 	}
-	// 检查是否存在immutable需要刷盘，TODO: 是不是可以用新的 goroutine 来完成
+	// 检查是否存在immutable需要刷盘，
 	for _, immutable := range lsm.immutables {
 		if err := lsm.levels.flush(immutable); err != nil {
 			return err
 		}
+	}
+	// 释放 immutable 表
+	for i := 0; i < len(lsm.immutables); i++ {
+		lsm.immutables[i].close()
 	}
 	return nil
 }
