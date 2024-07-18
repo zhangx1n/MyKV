@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"github.com/zhangx1n/MyKV/iterator"
 	"github.com/zhangx1n/MyKV/utils/codec"
 	"math/rand"
 	"sync"
@@ -20,6 +21,7 @@ type SkipList struct {
 	maxLevel int
 	length   int
 	lock     sync.RWMutex
+	size     int64
 }
 
 func NewSkipList() *SkipList {
@@ -28,8 +30,7 @@ func NewSkipList() *SkipList {
 	return &SkipList{
 		header: &Element{
 			levels: make([]*Element, defaultMaxLevel),
-			Key:    nil,
-			Val:    nil,
+			entry:  nil,
 			score:  0,
 		},
 		rand:     rand.New(source),
@@ -40,18 +41,20 @@ func NewSkipList() *SkipList {
 
 type Element struct {
 	levels []*Element
-	Key    []byte
-	Val    []byte
+	entry  *codec.Entry
 	score  float64
 }
 
-func newElement(score float64, key, val []byte, level int) *Element {
+func newElement(score float64, entry *codec.Entry, level int) *Element {
 	return &Element{
 		levels: make([]*Element, level),
-		Key:    key,
-		Val:    val,
+		entry:  entry,
 		score:  score,
 	}
+}
+
+func (elem *Element) Entry() *codec.Entry {
+	return elem.entry
 }
 
 func (list *SkipList) Add(data *codec.Entry) error {
@@ -61,19 +64,20 @@ func (list *SkipList) Add(data *codec.Entry) error {
 	var elem *Element
 
 	max := len(list.header.levels)
-	prevElem := list.header // 记录当前层的前一个元素
+	prevElem := list.header
 
-	var prevElemHeaders [defaultMaxLevel]*Element // 记录每一层的前一个元素
+	var prevElemHeaders [defaultMaxLevel]*Element
 
 	for i := max - 1; i >= 0; {
 		//keep visit path here
 		prevElemHeaders[i] = prevElem
-		// 相当于单链表中，cur := head.next; cur!= nil; cur = cur.next
+
 		for next := prevElem.levels[i]; next != nil; next = prevElem.levels[i] {
 			if comp := list.compare(score, data.Key, next); comp <= 0 {
 				if comp == 0 {
 					elem = next
-					elem.Val = data.Value
+					elem.entry = data
+					list.size += elem.Entry().Size() - data.Size()
 					return nil
 				}
 
@@ -81,16 +85,14 @@ func (list *SkipList) Add(data *codec.Entry) error {
 				break
 			}
 
-			// 对应单链表 prev = cur;
+			//just like linked-list next
 			prevElem = next
 			prevElemHeaders[i] = prevElem
 		}
 
-		// topLevel 用来标记在当前层次（i）中，prevElem.levels[i] 的下一个元素。
-		// 通过将 topLevel 与前驱元素的下一个元素进行比较，可以决定是否跳过同样的前驱元素，
-		// 直接跳到下一个层次，避免不必要的重复查找。
 		topLevel := prevElem.levels[i]
 
+		//to skip same prevHeader's next and fill next elem into temp element
 		for i--; i >= 0 && prevElem.levels[i] == topLevel; i-- {
 			prevElemHeaders[i] = prevElem
 		}
@@ -98,22 +100,21 @@ func (list *SkipList) Add(data *codec.Entry) error {
 
 	level := list.randLevel()
 
-	elem = newElement(score, data.Key, data.Value, level)
+	elem = newElement(score, data, level)
 
 	//to add elem to the skiplist
-
 	for i := 0; i < level; i++ {
 		elem.levels[i] = prevElemHeaders[i].levels[i]
 		prevElemHeaders[i].levels[i] = elem
 	}
-
+	list.size += data.Size()
 	list.length++
 	return nil
 }
 
 func (list *SkipList) Search(key []byte) (e *codec.Entry) {
-	list.lock.Lock()
-	defer list.lock.Unlock()
+	list.lock.RLock()
+	defer list.lock.RUnlock()
 	if list.length == 0 {
 		return nil
 	}
@@ -127,7 +128,7 @@ func (list *SkipList) Search(key []byte) (e *codec.Entry) {
 		for next := prevElem.levels[i]; next != nil; next = prevElem.levels[i] {
 			if comp := list.compare(score, key, next); comp <= 0 {
 				if comp == 0 {
-					return codec.NewEntry(next.Key, next.Val)
+					return next.Entry()
 				}
 				break
 			}
@@ -144,52 +145,52 @@ func (list *SkipList) Search(key []byte) (e *codec.Entry) {
 	return
 }
 
-//func (list *SkipList) Remove(key []byte) error {
-//	score := list.calcScore(key)
-//
-//	max := len(list.header.levels)
-//	prevElem := list.header
-//
-//	var prevElemHeaders [defaultMaxLevel]*Element
-//	var elem *Element
-//
-//	for i := max - 1; i >= 0; {
-//		//keep visit path here
-//		prevElemHeaders[i] = prevElem
-//
-//		for next := prevElem.levels[i]; next != nil; next = prevElem.levels[i] {
-//			if comp := list.compare(score, key, next); comp <= 0 {
-//				if comp == 0 {
-//					elem = next
-//				}
-//				break
-//			}
-//
-//			//just like linked-list next
-//			prevElem = next
-//			prevElemHeaders[i] = prevElem
-//		}
-//
-//		topLevel := prevElem.levels[i]
-//
-//		//to skip same prevHeader's next and fill next elem into temp element
-//		for i--; i >= 0 && prevElem.levels[i] == topLevel; i-- {
-//			prevElemHeaders[i] = prevElem
-//		}
-//	}
-//
-//	if elem == nil {
-//		return nil
-//	}
-//
-//	prevTopLevel := len(elem.levels)
-//	for i := 0; i < prevTopLevel; i++ {
-//		prevElemHeaders[i].levels[i] = elem.levels[i]
-//	}
-//
-//	list.length--
-//	return nil
-//}
+/*func (list *SkipList) Remove(key []byte) error {
+	score := list.calcScore(key)
+
+	max := len(list.header.levels)
+	prevElem := list.header
+
+	var prevElemHeaders [defaultMaxLevel]*Element
+	var elem *Element
+
+	for i := max - 1; i >= 0; {
+		//keep visit path here
+		prevElemHeaders[i] = prevElem
+
+		for next := prevElem.levels[i]; next != nil; next = prevElem.levels[i] {
+			if comp := list.compare(score, key, next); comp <= 0 {
+				if comp == 0 {
+					elem = next
+				}
+				break
+			}
+
+			//just like linked-list next
+			prevElem = next
+			prevElemHeaders[i] = prevElem
+		}
+
+		topLevel := prevElem.levels[i]
+
+		//to skip same prevHeader's next and fill next elem into temp element
+		for i--; i >= 0 && prevElem.levels[i] == topLevel; i-- {
+			prevElemHeaders[i] = prevElem
+		}
+	}
+
+	if elem == nil {
+		return nil
+	}
+
+	prevTopLevel := len(elem.levels)
+	for i := 0; i < prevTopLevel; i++ {
+		prevElemHeaders[i].levels[i] = elem.levels[i]
+	}
+
+	list.length--
+	return nil
+}*/
 
 func (list *SkipList) Close() error {
 	return nil
@@ -214,7 +215,7 @@ func (list *SkipList) calcScore(key []byte) (score float64) {
 
 func (list *SkipList) compare(score float64, key []byte, next *Element) int {
 	if score == next.score {
-		return bytes.Compare(key, next.Key)
+		return bytes.Compare(key, next.entry.Key)
 	}
 
 	if score < next.score {
@@ -235,4 +236,38 @@ func (list *SkipList) randLevel() int {
 		}
 	}
 	return i
+}
+
+func (list *SkipList) Size() int64 {
+	return list.size
+}
+
+type SkipListIter struct {
+	header *Element
+	elem   *Element
+	lock   sync.RWMutex
+}
+
+func (list *SkipList) NewSkipListIterator() iterator.Iterator {
+	return &SkipListIter{elem: list.header.levels[0], header: list.header}
+}
+
+func (iter *SkipListIter) Next() {
+	iter.lock.RLock()
+	defer iter.lock.RUnlock()
+	if iter.elem != nil {
+		iter.elem = iter.elem.levels[0]
+	}
+}
+func (iter *SkipListIter) Valid() bool {
+	return iter.elem != nil
+}
+func (iter *SkipListIter) Rewind() {
+	iter.elem = iter.header
+}
+func (iter *SkipListIter) Item() iterator.Item {
+	return iter.elem
+}
+func (iter *SkipListIter) Close() error {
+	return nil
 }

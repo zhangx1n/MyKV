@@ -15,7 +15,8 @@ type LSM struct {
 
 // Options
 type Options struct {
-	WorkDir string
+	WorkDir      string
+	MemTableSize int64
 }
 
 // 关闭lsm
@@ -59,13 +60,20 @@ func (lsm *LSM) StartMerge() {
 	}
 }
 
-func (lsm *LSM) Set(entry *codec.Entry) error {
+func (lsm *LSM) Set(entry *codec.Entry) (err error) {
 	// 检查当前memtable是否写满，是的话创建新的memtable,并将当前内存表写到immutables中
 	// 否则写入当前memtable中
+	if lsm.memTable.Size() > lsm.option.MemTableSize {
+		lsm.immutables = append(lsm.immutables, lsm.memTable)
+		if lsm.memTable, err = NewMemtable(); err != nil {
+			return err
+		}
+	}
+
 	if err := lsm.memTable.set(entry); err != nil {
 		return err
 	}
-	// 检查是否存在immutable需要刷盘，
+	// 检查是否存在immutable需要刷盘，TODO: 是不是可以用新的 goroutine 来完成
 	for _, immutable := range lsm.immutables {
 		if err := lsm.levels.flush(immutable); err != nil {
 			return err
