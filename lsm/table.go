@@ -5,6 +5,7 @@ import (
 	"github.com/zhangx1n/MyKV/file"
 	"github.com/zhangx1n/MyKV/utils"
 	"github.com/zhangx1n/MyKV/utils/codec"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -17,23 +18,12 @@ type table struct {
 }
 
 func openTable(lm *levelManager, tableName string) *table {
-	t := &table{ss: file.OpenSStable(&file.Options{Name: tableName, Dir: lm.opt.WorkDir})}
+	t := &table{ss: file.OpenSStable(&file.Options{FileName: tableName, Dir: lm.opt.WorkDir, Flag: os.O_CREATE | os.O_RDWR, MaxSz: int(lm.opt.SSTableMaxSz)})}
 	// 加载ss文件 索引
 	t.idxs = t.ss.Indexs()
 	// 反引用 level manager
 	t.lm = lm
-	// 获取fid
-	j := 0
-	for i := range tableName {
-		if tableName[i] != '0'-0 {
-			break
-		}
-		j++
-	}
-	fidStr := strings.Split(tableName[j:], ".")[0]
-	fidU64, err := strconv.ParseUint(fidStr, 10, 32)
-	utils.Panic(err)
-	t.fid = uint32(fidU64)
+	t.fid = utils.FID(tableName)
 	return t
 }
 

@@ -1,10 +1,12 @@
 package lsm
 
 import (
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/zhangx1n/MyKV/file"
 	"github.com/zhangx1n/MyKV/utils"
 	"github.com/zhangx1n/MyKV/utils/codec"
+	"os"
 	"testing"
 )
 
@@ -22,15 +24,18 @@ func TestLevels(t *testing.T) {
 	}
 	// 初始化opt
 	opt := &Options{
-		WorkDir: "../work_test",
+		WorkDir:      "../work_test",
+		SSTableMaxSz: 1 << 30,
+		MemTableSize: 1024,
 	}
 	levelLive := func() {
 		// 初始化
 		levels := newLevelManager(opt)
 		defer func() { _ = levels.close() }()
+		fileName := fmt.Sprintf("%s/%s", opt.WorkDir, "00001.mem")
 		// 构建内存表
 		imm := &memTable{
-			wal: file.OpenWalFile(&file.Options{Name: "00001.mem", Dir: opt.WorkDir}),
+			wal: file.OpenWalFile(&file.Options{FileName: fileName, Dir: opt.WorkDir, Flag: os.O_CREATE | os.O_RDWR, MaxSz: int(opt.SSTableMaxSz)}),
 			sl:  utils.NewSkipList(),
 		}
 		for _, entry := range entrys {
@@ -52,4 +57,4 @@ func TestLevels(t *testing.T) {
 	}
 }
 
-// 对level管理器的性能测
+// 对level管理器的性能测试

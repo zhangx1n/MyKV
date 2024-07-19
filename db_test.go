@@ -12,7 +12,7 @@ func TestAPI(t *testing.T) {
 	db := Open(opt)
 	defer func() { _ = db.Close() }()
 	// 写入
-	e := codec.NewEntry([]byte("hello"), []byte("MyKV")).WithTTL(1 * time.Second)
+	e := codec.NewEntry([]byte("hello"), []byte("mykv")).WithTTL(1 * time.Second)
 	if err := db.Set(e); err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +27,7 @@ func TestAPI(t *testing.T) {
 		Prefix: []byte("hello"),
 		IsAsc:  false,
 	})
+	defer func() { _ = iter.Close() }()
 	defer func() { _ = iter.Close() }()
 	for iter.Rewind(); iter.Valid(); iter.Next() {
 		it := iter.Item()

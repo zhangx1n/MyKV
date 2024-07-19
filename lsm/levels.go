@@ -6,7 +6,7 @@ import (
 	"github.com/zhangx1n/MyKV/file"
 	"github.com/zhangx1n/MyKV/utils"
 	"github.com/zhangx1n/MyKV/utils/codec"
-	"log"
+	"os"
 	"sync/atomic"
 )
 
@@ -26,11 +26,8 @@ type levelHandler struct {
 func (lh *levelHandler) close() error {
 	return nil
 }
-func (lh *levelHandler) add(sst *file.SSTable) {
-	lh.tables = append(lh.tables, &table{
-		ss:   sst,
-		idxs: sst.Indexs(),
-	})
+func (lh *levelHandler) add(t *table) {
+	lh.tables = append(lh.tables, t)
 }
 
 func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
@@ -55,6 +52,9 @@ func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
 }
 func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
 	table := lh.getTable(key)
+	if table == nil {
+		return nil, utils.ErrKeyNotFound
+	}
 	if entry, err := table.Serach(key); err == nil {
 		return entry, nil
 	}
@@ -85,35 +85,23 @@ func (lm *levelManager) close() error {
 }
 
 func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
-	// TODO:  去掉print存在 bug
 	var (
 		entry *codec.Entry
 		err   error
 	)
-
 	// L0层查询
-	if lm.levels[0] == nil {
-		log.Println("lm.levels[0] is nil")
-	} else {
-		if entry, err = lm.levels[0].Get(key); entry != nil {
-			return entry, err
-		}
+	if entry, err = lm.levels[0].Get(key); entry != nil {
+		return entry, err
 	}
-
 	// L1-7层查询
-	for level := 1; level < 8; level++ {
+	for level := 1; level < utils.MaxLevelNum; level++ {
 		ld := lm.levels[level]
-		if ld == nil {
-			log.Printf("lm.levels[%d] is nil\n", level)
-			continue
-		}
 		if entry, err = ld.Get(key); entry != nil {
 			return entry, err
 		}
 	}
-	return entry, nil
+	return entry, utils.ErrKeyNotFound
 }
-
 func newLevelManager(opt *Options) *levelManager {
 	lm := &levelManager{}
 	lm.opt = opt
@@ -133,7 +121,8 @@ func (lm *levelManager) loadCache() {
 }
 func (lm *levelManager) loadManifest() {
 	//TODO: 从 current 文件中拿到当前manifest文件名
-	lm.manifest = file.OpenManifest(&file.Options{Name: "MANIFEST", Dir: lm.opt.WorkDir})
+	fileName := fmt.Sprintf("%s/%s", lm.opt.WorkDir, utils.MANIFEST)
+	lm.manifest = file.OpenManifest(&file.Options{FileName: fileName, Flag: os.O_CREATE | os.O_RDWR, MaxSz: 1 << 20})
 }
 func (lm *levelManager) build() {
 	// 如果manifest文件是空的 则进行初始化
@@ -161,15 +150,17 @@ func (lm *levelManager) build() {
 func (lm *levelManager) flush(immutable *memTable) error {
 	// 分配一个fid
 	newFid := atomic.AddUint32(&lm.maxFid, 1)
-	sstName := fmt.Sprintf("%05d.sst", newFid)
+	sstName := fmt.Sprintf("%s/%05d.sst", lm.opt.WorkDir, newFid)
 	// 创建一个sstable对象
-	sst := file.OpenSStable(&file.Options{Name: sstName, Dir: lm.opt.WorkDir})
+	table := openTable(lm, sstName)
 	// 跳表中的数据转化为sst文件
-	if err := sst.SaveSkipListToSSTable(immutable.sl); err != nil {
+	if err := table.ss.SaveSkipListToSSTable(immutable.sl); err != nil {
 		return err
 	}
+	// 加载一下索引
+	table.idxs = table.ss.Indexs()
 	// 更新manifest文件
-	lm.levels[0].add(sst)
+	lm.levels[0].add(table)
 	return lm.manifest.AppendSST(0, &file.Cell{
 		SSTName: sstName,
 	})

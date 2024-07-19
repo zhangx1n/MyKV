@@ -5,33 +5,38 @@ import (
 	"fmt"
 	"github.com/zhangx1n/MyKV/iterator"
 	"github.com/zhangx1n/MyKV/utils"
-	"io"
-	"io/ioutil"
+	"os"
 	"strings"
+	"sync"
 )
 
 // SSTable 文件的内存封装
 type SSTable struct {
-	f      *MockFile
+	lock   *sync.RWMutex
+	f      *MmapFile
 	maxKey []byte
 	minKey []byte
 	indexs []byte
-	fid    string
+	fid    uint32
 }
 
 // OpenSStable 打开一个 sst文件
 func OpenSStable(opt *Options) *SSTable {
-	return &SSTable{f: OpenMockFile(opt), fid: utils.FID(opt.Name)}
+	omf, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	utils.Err(err)
+	return &SSTable{f: omf, fid: opt.FID, lock: &sync.RWMutex{}}
 }
 
 // Indexs 获取sst文件索引
 func (ss *SSTable) Indexs() []byte {
 	if len(ss.indexs) == 0 {
-		bv, _ := ioutil.ReadAll(ss.f)
+		ss.lock.RLock()
+		bv := ss.f.Slice(0)
+		ss.lock.RUnlock()
 		m := make(map[string]interface{}, 0)
 		json.Unmarshal(bv, &m)
 		if idx, ok := m["idx"]; !ok {
-			panic("sst idx is nil")
+			return []byte{}
 		} else {
 			dataStr, _ := idx.(string) // hello,0
 			ss.indexs = []byte(dataStr)
@@ -54,12 +59,11 @@ func (ss *SSTable) MinKey() []byte {
 }
 
 // FID 获取fid
-func (ss *SSTable) FID() string {
+func (ss *SSTable) FID() uint32 {
 	return ss.fid
 }
 
 // SaveSkipListToSSTable 将跳表序列化到sst文件中
-// {"data":"world0,world1,world2","idx":"hello0,0,hello1,1,hello2,2"}
 // TODO 设计sst文件格式，并重写此处flush逻辑
 func (ss *SSTable) SaveSkipListToSSTable(sl *utils.SkipList) error {
 	iter := sl.NewIterator(&iterator.Options{})
@@ -75,23 +79,24 @@ func (ss *SSTable) SaveSkipListToSSTable(sl *utils.SkipList) error {
 	ssData["idx"] = strings.Join(indexs, ",")
 	ssData["data"] = strings.Join(datas, ",")
 	bData, err := json.Marshal(ssData)
-	if err != nil {
-		return err
-	}
-	if _, err := ss.f.Write(bData); err != nil {
-		return err
-	}
+	utils.Err(err)
+	ss.lock.Lock()
+	// TODO 这里可能要在完善一下，想一下page的问题。
+	fileData, _, err := ss.f.AllocateSlice(len(bData), 0)
+	utils.Panic(err)
+	copy(fileData, bData)
+	ss.lock.Unlock()
 	ss.indexs = []byte(ssData["idx"])
 	return nil
 }
 
 // LoadData 加载数据块
 func (ss *SSTable) LoadData() (blocks [][]byte, offsets []int) {
-	ss.f.f.Seek(0, io.SeekStart)
-	bv, err := ioutil.ReadAll(ss.f)
-	utils.Panic(err)
+	ss.lock.RLock()
+	fileData := ss.f.Slice(0)
+	ss.lock.RUnlock()
 	m := make(map[string]interface{}, 0)
-	json.Unmarshal(bv, &m)
+	json.Unmarshal(fileData, &m)
 	if data, ok := m["data"]; !ok {
 		panic("sst data is nil")
 	} else {

@@ -28,14 +28,20 @@ type (
 	}
 )
 
-func Open(options *Options) *DB {
-	db := &DB{opt: options}
+// Open DB
+// TODO 这里是不是要上一个目录锁比较好，防止多个进程打开同一个目录?
+func Open(opt *Options) *DB {
+	db := &DB{opt: opt}
 	// 初始化LSM结构
-	db.lsm = lsm.NewLSM(&lsm.Options{})
+	db.lsm = lsm.NewLSM(&lsm.Options{
+		WorkDir:      opt.WorkDir,
+		MemTableSize: opt.MemTableSize,
+		SSTableMaxSz: opt.SSTableMaxSz,
+	})
 	// 初始化vlog结构
 	db.vlog = vlog.NewVLog(&vlog.Options{})
 	// 初始化统计信息
-	db.stats = newStats(options)
+	db.stats = newStats(opt)
 	// 启动 sstable 的合并压缩过程
 	go db.lsm.StartMerge()
 	// 启动 vlog gc 过程

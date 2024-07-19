@@ -1,9 +1,15 @@
 package file
 
-import "github.com/zhangx1n/MyKV/utils/codec"
+import (
+	"github.com/zhangx1n/MyKV/utils"
+	"github.com/zhangx1n/MyKV/utils/codec"
+	"os"
+	"sync"
+)
 
 type WalFile struct {
-	f *MockFile
+	lock *sync.RWMutex
+	f    *MmapFile
 }
 
 // WalFile
@@ -13,12 +19,20 @@ func (wf *WalFile) Close() error {
 	}
 	return nil
 }
-func OpenWalFile(opt *Options) *WalFile { return &WalFile{f: OpenMockFile(opt)} }
+func OpenWalFile(opt *Options) *WalFile {
+	omf, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	utils.Err(err)
+	return &WalFile{f: omf, lock: &sync.RWMutex{}}
+}
 
 func (wf *WalFile) Write(entry *codec.Entry) error {
 	// 落预写日志简单的同步写即可
 	// 序列化为磁盘结构
 	walData := codec.WalCodec(entry)
-	_, err := wf.f.Write(walData)
-	return err
+	wf.lock.Lock()
+	fileData, _, err := wf.f.AllocateSlice(len(walData), 0) // TODO 这里要维护offset才行
+	utils.Panic(err)
+	copy(fileData, walData)
+	wf.lock.Unlock()
+	return nil
 }

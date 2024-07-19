@@ -1,9 +1,11 @@
 package lsm
 
 import (
+	"fmt"
 	"github.com/zhangx1n/MyKV/file"
 	"github.com/zhangx1n/MyKV/utils"
 	"github.com/zhangx1n/MyKV/utils/codec"
+	"os"
 )
 
 // MemTable
@@ -54,8 +56,10 @@ func (m *memTable) Size() int64 {
 func recovery(opt *Options) (*memTable, []*memTable) {
 	// TODO 这里需要实现获取mem list
 	fileOpt := &file.Options{
-		Dir:  opt.WorkDir,
-		Name: "00001.mem",
+		Dir:      opt.WorkDir,
+		FileName: fmt.Sprintf("%s/%s", opt.WorkDir, "00001.mem"),
+		Flag:     os.O_CREATE | os.O_RDWR,
+		MaxSz:    int(opt.SSTableMaxSz), //TODO wal 要设置多大比较合理？ 姑且跟sst一样大
 	}
 	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList()}, []*memTable{}
 }
