@@ -25,7 +25,7 @@ func TestLevels(t *testing.T) {
 	// 初始化opt
 	opt := &Options{
 		WorkDir:      "../work_test",
-		SSTableMaxSz: 1 << 30,
+		SSTableMaxSz: 1 << 10,
 		MemTableSize: 1024,
 	}
 	levelLive := func() {
