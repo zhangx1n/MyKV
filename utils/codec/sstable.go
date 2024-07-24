@@ -1,5 +1,0 @@
-package codec
-
-func Index() {
-
-}

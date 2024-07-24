@@ -37,3 +37,5 @@ func (iter *DBIterator) Item() iterator.Item {
 func (iter *DBIterator) Close() error {
 	return nil
 }
+func (iter *DBIterator) Seek(key []byte) {
+}

@@ -1,6 +1,8 @@
 package iterator
 
-import "github.com/zhangx1n/MyKV/utils/codec"
+import (
+	"github.com/zhangx1n/MyKV/utils/codec"
+)
 
 // Iterator 迭代器
 type Iterator interface {
@@ -9,6 +11,7 @@ type Iterator interface {
 	Rewind()
 	Item() Item
 	Close() error
+	Seek(key []byte)
 }
 
 type Item interface {

@@ -43,6 +43,8 @@ func (iter *Iterator) Item() iterator.Item {
 func (iter *Iterator) Close() error {
 	return nil
 }
+func (iter *Iterator) Seek(key []byte) {
+}
 
 // 内存表迭代器
 type memIterator struct {
@@ -67,6 +69,8 @@ func (iter *memIterator) Item() iterator.Item {
 func (iter *memIterator) Close() error {
 	return iter.innerIter.Close()
 }
+func (iter *memIterator) Seek(key []byte) {
+}
 
 // levelManager上的迭代器
 type levelIterator struct {
@@ -90,4 +94,6 @@ func (iter *levelIterator) Item() iterator.Item {
 }
 func (iter *levelIterator) Close() error {
 	return nil
+}
+func (iter *levelIterator) Seek(key []byte) {
 }

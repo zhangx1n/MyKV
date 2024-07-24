@@ -3,6 +3,7 @@ package lsm
 import (
 	"bytes"
 	"github.com/zhangx1n/MyKV/file"
+	"github.com/zhangx1n/MyKV/iterator"
 	"github.com/zhangx1n/MyKV/utils"
 	"github.com/zhangx1n/MyKV/utils/codec"
 	"sort"
@@ -61,8 +62,9 @@ func (lh *levelHandler) Sort() {
 }
 
 func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
+	var version uint64
 	for _, table := range lh.tables {
-		if entry, err := table.Serach(key); err == nil {
+		if entry, err := table.Serach(key, &version); err == nil {
 			return entry, nil
 		}
 	}
@@ -70,10 +72,11 @@ func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
 }
 func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
 	table := lh.getTable(key)
+	var version uint64
 	if table == nil {
 		return nil, utils.ErrKeyNotFound
 	}
-	if entry, err := table.Serach(key); err == nil {
+	if entry, err := table.Serach(key, &version); err == nil {
 		return entry, nil
 	}
 	return nil, utils.ErrKeyNotFound
@@ -143,7 +146,6 @@ func (lm *levelManager) loadManifest() (err error) {
 	lm.manifestFile, err = file.OpenManifestFile(&file.Options{Dir: lm.opt.WorkDir})
 	return err
 }
-
 func (lm *levelManager) build() error {
 	lm.levels = make([]*levelHandler, 0, utils.MaxLevelNum)
 	for i := 0; i < utils.MaxLevelNum; i++ {
@@ -164,7 +166,7 @@ func (lm *levelManager) build() error {
 		if fID > maxFid {
 			maxFid = fID
 		}
-		t := openTable(lm, fileName)
+		t := openTable(lm, fileName, nil)
 		lm.levels[tableInfo.Level].tables = append(lm.levels[tableInfo.Level].tables, t)
 	}
 	// 对每一层进行排序
@@ -183,14 +185,16 @@ func (lm *levelManager) flush(immutable *memTable) error {
 	// 分配一个fid
 	nextID := atomic.AddUint64(&lm.maxFid, 1)
 	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
-	// 创建一个sstable对象
-	table := openTable(lm, sstName)
-	// 跳表中的数据转化为sst文件
-	if err := table.ss.SaveSkipListToSSTable(immutable.sl); err != nil {
-		return err
+
+	// 构建一个 builder
+	builder := newTableBuiler(lm.opt)
+	iter := immutable.sl.NewIterator(&iterator.Options{})
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		entry := iter.Item().Entry()
+		builder.add(entry)
 	}
-	// 加载一下索引
-	table.idxs = table.ss.Indexs()
+	// 创建一个 table 对象
+	table := openTable(lm, sstName, builder)
 	// 更新manifest文件
 	lm.levels[0].add(table)
 	return lm.manifestFile.AddTableMeta(0, &file.TableMeta{
