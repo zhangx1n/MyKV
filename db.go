@@ -1,4 +1,4 @@
-package mykv
+package xkv
 
 import (
 	"github.com/zhangx1n/xkv/iterator"
@@ -9,7 +9,7 @@ import (
 )
 
 type (
-	// MyAPI MyKV对外提供的功能集合
+	// MyAPI xkv对外提供的功能集合
 	MyAPI interface {
 		Set(data *codec.Entry) error
 		Get(key []byte) (*codec.Entry, error)

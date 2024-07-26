@@ -25,7 +25,7 @@ type ManifestFile struct {
 	manifest *Manifest
 }
 
-// Manifest mykv 元数据状态维护
+// Manifest xkv 元数据状态维护
 type Manifest struct {
 	Levels []levelManifest          // level
 	Tables map[uint64]TableManifest // sst

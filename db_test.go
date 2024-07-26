@@ -1,4 +1,4 @@
-package mykv
+package xkv
 
 import (
 	"github.com/zhangx1n/xkv/iterator"
@@ -12,7 +12,7 @@ func TestAPI(t *testing.T) {
 	db := Open(opt)
 	defer func() { _ = db.Close() }()
 	// 写入
-	e := codec.NewEntry([]byte("hello"), []byte("mykv")).WithTTL(1 * time.Second)
+	e := codec.NewEntry([]byte("hello"), []byte("xkv")).WithTTL(1 * time.Second)
 	if err := db.Set(e); err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package mykv
+package xkv
 
 import (
 	"github.com/zhangx1n/xkv/iterator"
