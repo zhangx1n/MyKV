@@ -3,9 +3,9 @@ package file
 import (
 	"encoding/json"
 	"github.com/pkg/errors"
-	"github.com/zhangx1n/MyKV/utils"
-	"github.com/zhangx1n/MyKV/utils/codec"
-	"github.com/zhangx1n/MyKV/utils/codec/pb"
+	"github.com/zhangx1n/xkv/utils"
+	"github.com/zhangx1n/xkv/utils/codec"
+	"github.com/zhangx1n/xkv/utils/codec/pb"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"os"

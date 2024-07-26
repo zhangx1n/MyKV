@@ -3,8 +3,8 @@ package file
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/zhangx1n/MyKV/utils"
-	"github.com/zhangx1n/MyKV/utils/mmap"
+	"github.com/zhangx1n/xkv/utils"
+	"github.com/zhangx1n/xkv/utils/mmap"
 	"io"
 	"os"
 	"path/filepath"

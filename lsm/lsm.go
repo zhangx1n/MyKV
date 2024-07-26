@@ -1,8 +1,8 @@
 package lsm
 
 import (
-	"github.com/zhangx1n/MyKV/utils"
-	"github.com/zhangx1n/MyKV/utils/codec"
+	"github.com/zhangx1n/xkv/utils"
+	"github.com/zhangx1n/xkv/utils/codec"
 )
 
 type LSM struct {

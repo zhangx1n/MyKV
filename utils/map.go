@@ -2,7 +2,7 @@ package utils
 
 import (
 	"github.com/pkg/errors"
-	"github.com/zhangx1n/MyKV/utils/codec"
+	"github.com/zhangx1n/xkv/utils/codec"
 	"reflect"
 	"sync"
 )

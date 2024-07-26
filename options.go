@@ -1,6 +1,6 @@
 package mykv
 
-import "github.com/zhangx1n/MyKV/utils"
+import "github.com/zhangx1n/xkv/utils"
 
 // Options 总的配置文件
 type Options struct {

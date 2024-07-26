@@ -3,9 +3,9 @@ package lsm
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/zhangx1n/MyKV/file"
-	"github.com/zhangx1n/MyKV/utils"
-	"github.com/zhangx1n/MyKV/utils/codec"
+	"github.com/zhangx1n/xkv/file"
+	"github.com/zhangx1n/xkv/utils"
+	"github.com/zhangx1n/xkv/utils/codec"
 	"os"
 	"testing"
 )

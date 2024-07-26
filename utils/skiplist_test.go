@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zhangx1n/MyKV/utils/codec"
+	"github.com/zhangx1n/xkv/utils/codec"
 	"sync"
 	"testing"
 )

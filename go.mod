@@ -1,4 +1,4 @@
-module github.com/zhangx1n/MyKV
+module github.com/zhangx1n/xkv
 
 go 1.22.5
 

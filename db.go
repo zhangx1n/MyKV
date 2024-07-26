@@ -1,11 +1,11 @@
 package mykv
 
 import (
-	"github.com/zhangx1n/MyKV/iterator"
-	"github.com/zhangx1n/MyKV/lsm"
-	"github.com/zhangx1n/MyKV/utils"
-	"github.com/zhangx1n/MyKV/utils/codec"
-	"github.com/zhangx1n/MyKV/vlog"
+	"github.com/zhangx1n/xkv/iterator"
+	"github.com/zhangx1n/xkv/lsm"
+	"github.com/zhangx1n/xkv/utils"
+	"github.com/zhangx1n/xkv/utils/codec"
+	"github.com/zhangx1n/xkv/vlog"
 )
 
 type (

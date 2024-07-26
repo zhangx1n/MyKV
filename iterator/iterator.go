@@ -1,7 +1,7 @@
 package iterator
 
 import (
-	"github.com/zhangx1n/MyKV/utils/codec"
+	"github.com/zhangx1n/xkv/utils/codec"
 )
 
 // Iterator 迭代器

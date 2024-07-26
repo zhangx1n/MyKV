@@ -1,6 +1,6 @@
 package lsm
 
-import "github.com/zhangx1n/MyKV/utils"
+import "github.com/zhangx1n/xkv/utils"
 
 type cache struct {
 	indexs *utils.MyMap // key fid， value tableBuffer

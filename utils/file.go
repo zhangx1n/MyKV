@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/zhangx1n/MyKV/utils/codec"
+	"github.com/zhangx1n/xkv/utils/codec"
 	"hash/crc32"
 	"io/ioutil"
 	"os"
