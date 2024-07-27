@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/pkg/errors"
-	"github.com/zhangx1n/xkv/utils/codec"
 	"hash/crc32"
 	"io/ioutil"
 	"os"
@@ -32,7 +31,7 @@ func FID(name string) uint64 {
 
 // FileNameSSTable  sst 文件名
 func FileNameSSTable(dir string, id uint64) string {
-	return filepath.Join(dir, fmt.Sprintf("%06d.sst", id))
+	return filepath.Join(dir, fmt.Sprintf("%05d.sst", id))
 }
 
 // openDir opens a directory for syncing.
@@ -86,7 +85,7 @@ func CompareKeys(key1, key2 []byte) int {
 // VerifyChecksum crc32
 func VerifyChecksum(data []byte, expected []byte) error {
 	actual := uint64(crc32.Checksum(data, CastagnoliCrcTable))
-	expectedU64 := codec.BytesToU64(expected)
+	expectedU64 := BytesToU64(expected)
 	if actual != expectedU64 {
 		return errors.Wrapf(ErrChecksumMismatch, "actual: %d, expected: %d", actual, expectedU64)
 	}

@@ -3,9 +3,8 @@ package file
 import (
 	"encoding/json"
 	"github.com/pkg/errors"
+	"github.com/zhangx1n/xkv/pb"
 	"github.com/zhangx1n/xkv/utils"
-	"github.com/zhangx1n/xkv/utils/codec"
-	"github.com/zhangx1n/xkv/utils/codec/pb"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"os"
@@ -39,13 +38,13 @@ func (ss *SSTable) Init() error {
 	if ko, err = ss.initTable(); err != nil {
 		return err
 	}
-	// init min key
+	// 初始化 minKey
 	keyBytes := ko.GetKey()
 	minKey := make([]byte, len(keyBytes))
 	copy(minKey, keyBytes)
 	ss.minKey = minKey
 
-	// init max key
+	// 初始化 maxKey
 	blockLen := len(ss.idxTables.Offsets)
 	ko = ss.idxTables.Offsets[blockLen-1]
 	keyBytes = ko.GetKey()
@@ -55,27 +54,28 @@ func (ss *SSTable) Init() error {
 	return nil
 }
 
+// [数据块][索引块][索引长度(4字节)][校验和][校验和长度(4字节)]
 func (ss *SSTable) initTable() (bo *pb.BlockOffset, err error) {
 	readPos := len(ss.f.Data)
 
-	// Read checksum len from the last 4 bytes.
+	// 从最后 4 位读取校验和长度
 	readPos -= 4
 	buf := ss.readCheckError(readPos, 4)
-	checksumLen := int(codec.BytesToU32(buf))
+	checksumLen := int(utils.BytesToU32(buf))
 	if checksumLen < 0 {
 		return nil, errors.New("checksum length less than zero. Data corrupted")
 	}
 
-	// Read checksum.
+	// 读取校验和
 	readPos -= checksumLen
 	expectedChk := ss.readCheckError(readPos, checksumLen)
 
-	// Read index size from the footer.
+	// 读取索引长度
 	readPos -= 4
 	buf = ss.readCheckError(readPos, 4)
-	ss.idxLen = int(codec.BytesToU32(buf))
+	ss.idxLen = int(utils.BytesToU32(buf))
 
-	// Read index.
+	// 读取索引
 	readPos -= ss.idxLen
 	ss.idxStart = readPos
 	data := ss.readCheckError(readPos, ss.idxLen)

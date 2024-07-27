@@ -6,7 +6,9 @@ import (
 )
 
 const (
-	MaxLevelNum           = 7
+	// MaxLevelNum _
+	MaxLevelNum = 7
+	// DefaultValueThreshold _
 	DefaultValueThreshold = 1024
 )
 
@@ -23,5 +25,6 @@ var (
 	MagicText    = [4]byte{'H', 'A', 'R', 'D'}
 	MagicVersion = uint32(1)
 	// CastagnoliCrcTable is a CRC32 polynomial table
-	CastagnoliCrcTable = crc32.MakeTable(crc32.Castagnoli)
+	CastagnoliCrcTable     = crc32.MakeTable(crc32.Castagnoli)
+	MaxHeaderSize      int = 21
 )

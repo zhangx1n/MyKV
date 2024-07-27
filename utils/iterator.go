@@ -1,8 +1,4 @@
-package iterator
-
-import (
-	"github.com/zhangx1n/xkv/utils"
-)
+package utils
 
 // Iterator 迭代器
 type Iterator interface {
@@ -14,11 +10,13 @@ type Iterator interface {
 	Seek(key []byte)
 }
 
+// Item _
 type Item interface {
-	Entry() *utils.Entry
+	Entry() *Entry
 }
 
+// Options _
 type Options struct {
-	Prefix []byte // 用于前缀过滤
-	IsAsc  bool   // true: 升序, false: 降序
+	Prefix []byte
+	IsAsc  bool
 }

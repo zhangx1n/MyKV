@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/zhangx1n/xkv/utils/codec"
 	"sync"
 	"testing"
 )
@@ -28,7 +27,7 @@ func TestSkipList_compare(t *testing.T) {
 
 	byte1 := []byte("1")
 	byte2 := []byte("2")
-	entry1 := codec.NewEntry(byte1, byte1)
+	entry1 := NewEntry(byte1, byte1)
 
 	byte1score := list.calcScore(byte1)
 	byte2score := list.calcScore(byte2)
@@ -46,11 +45,11 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	list := NewSkipList()
 
 	//Put & Get
-	entry1 := codec.NewEntry([]byte("Key1"), []byte("Val1"))
+	entry1 := NewEntry([]byte("Key1"), []byte("Val1"))
 	assert.Nil(t, list.Add(entry1))
 	assert.Equal(t, entry1.Value, list.Search(entry1.Key).Value)
 
-	entry2 := codec.NewEntry([]byte("Key2"), []byte("Val2"))
+	entry2 := NewEntry([]byte("Key2"), []byte("Val2"))
 	assert.Nil(t, list.Add(entry2))
 	assert.Equal(t, entry2.Value, list.Search(entry2.Key).Value)
 
@@ -58,7 +57,7 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	assert.Nil(t, list.Search([]byte("noexist")))
 
 	//Update a entry
-	entry2_new := codec.NewEntry([]byte("Key1"), []byte("Val1+1"))
+	entry2_new := NewEntry([]byte("Key1"), []byte("Val1+1"))
 	assert.Nil(t, list.Add(entry2_new))
 	assert.Equal(t, entry2_new.Value, list.Search(entry2_new.Key).Value)
 }
@@ -70,7 +69,7 @@ func Benchmark_SkipListBasicCRUD(b *testing.B) {
 	for i := 0; i < maxTime; i++ {
 		//number := rand.Intn(10000)
 		key, val = fmt.Sprintf("Key%d", i), fmt.Sprintf("Val%d", i)
-		entry := codec.NewEntry([]byte(key), []byte(val))
+		entry := NewEntry([]byte(key), []byte(val))
 		res := list.Add(entry)
 		assert.Equal(b, res, nil)
 		searchVal := list.Search([]byte(key))
@@ -90,7 +89,7 @@ func TestConcurrentBasic(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			assert.Nil(t, l.Add(codec.NewEntry(key(i), key(i))))
+			assert.Nil(t, l.Add(NewEntry(key(i), key(i))))
 		}(i)
 	}
 	wg.Wait()
@@ -122,7 +121,7 @@ func Benchmark_ConcurrentBasic(b *testing.B) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			assert.Nil(b, l.Add(codec.NewEntry(key(i), key(i))))
+			assert.Nil(b, l.Add(NewEntry(key(i), key(i))))
 		}(i)
 	}
 	wg.Wait()

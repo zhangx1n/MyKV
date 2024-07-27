@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"github.com/zhangx1n/xkv/file"
 	"github.com/zhangx1n/xkv/iterator"
+	"github.com/zhangx1n/xkv/pb"
 	"github.com/zhangx1n/xkv/utils"
-	"github.com/zhangx1n/xkv/utils/codec"
-	"github.com/zhangx1n/xkv/utils/codec/pb"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"math"
@@ -16,35 +15,41 @@ import (
 	"unsafe"
 )
 
+// tableBuilder 负责构建SSTable
 type tableBuilder struct {
-	curBlock   *block
-	opt        *Options
-	blockList  []*block
-	keyCount   uint32
-	keyHashes  []uint32 // Used for building the bloomfilter.
-	maxVersion uint64
-	baseKey    []byte // Base key for the current block.
-}
-type buildData struct {
-	blockList []*block
-	index     []byte
-	checksum  []byte
-	size      int
-}
-type block struct {
-	offset            int //当前block的offset 首地址
-	checksum          []byte
-	entriesIndexStart int
-	chkLen            int
-	data              []byte
-	baseKey           []byte   // Base key for the current block.
-	entryOffsets      []uint32 // Offsets of entries present in current block.
-	end               int      // Points to the end offset of the block.
+	curBlock   *block   // 当前正在构建的block
+	opt        *Options // SSTable的配置选项
+	blockList  []*block // 已完成的block列表
+	keyCount   uint32   // 键的总数
+	keyHashes  []uint32 // 用于构建布隆过滤器的键哈希
+	maxVersion uint64   // 最大版本号
+	baseKey    []byte   // 当前block的基准键
 }
 
+// buildData 包含构建SSTable所需的所有数据
+type buildData struct {
+	blockList []*block // block列表
+	index     []byte   // 索引数据
+	checksum  []byte   // 校验和
+	size      int      // 总大小
+}
+
+// block 表示SSTable中的一个数据块
+type block struct {
+	offset            int      // block在文件中的偏移量
+	checksum          []byte   // block的校验和
+	entriesIndexStart int      // 条目索引的起始位置
+	chkLen            int      // 校验和长度
+	data              []byte   // block的原始数据
+	baseKey           []byte   // block的基准键
+	entryOffsets      []uint32 // block中各条目的偏移量
+	end               int      // block的结束位置
+}
+
+// header 用于压缩存储键
 type header struct {
-	overlap uint16 // Overlap with base key.
-	diff    uint16 // Length of the diff.
+	overlap uint16 // 与base key的重叠长度
+	diff    uint16 // 与base key的差异长度
 }
 
 const headerSize = uint16(unsafe.Sizeof(header{}))
@@ -63,7 +68,7 @@ func (h header) encode() []byte {
 	return b[:]
 }
 
-func (tb *tableBuilder) add(e *codec.Entry) {
+func (tb *tableBuilder) add(e *utils.Entry) {
 	key := e.Key
 	// 检查是否需要分配一个新的 block
 	if tb.tryFinishBlock(e) {
@@ -73,16 +78,19 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 			data: make([]byte, tb.opt.BlockSize), // TODO 加密block后块的大小会增加，需要预留一些填充位置
 		}
 	}
-	tb.keyHashes = append(tb.keyHashes, utils.Hash(codec.ParseKey(key)))
+	// 更新keyHashes和maxVersion
+	tb.keyHashes = append(tb.keyHashes, utils.Hash(utils.ParseKey(key)))
 
-	if version := codec.ParseTs(key); version > tb.maxVersion {
+	if version := utils.ParseTs(key); version > tb.maxVersion {
 		tb.maxVersion = version
 	}
 
+	// 计算与baseKey的差异
 	var diffKey []byte
 	if len(tb.curBlock.baseKey) == 0 {
 		// Make a copy. Builder should not keep references. Otherwise, caller has to be very careful
 		// and will have to make copies of keys every time they add to builder, which is even worse.
+		// 如果是block的第一个键，设置为baseKey
 		tb.curBlock.baseKey = append(tb.curBlock.baseKey[:0], key...)
 		diffKey = key
 	} else {
@@ -96,10 +104,10 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 		diff:    uint16(len(diffKey)),
 	}
 
-	// store current entry's offset
+	// 记录当前条目的偏移量
 	tb.curBlock.entryOffsets = append(tb.curBlock.entryOffsets, uint32(tb.curBlock.end))
 
-	// Layout: header, diffKey, value.
+	// 写入header、diffKey和value
 	tb.append(h.encode())
 	tb.append(diffKey)
 
@@ -113,7 +121,8 @@ func newTableBuiler(opt *Options) *tableBuilder {
 	}
 }
 
-func (tb *tableBuilder) tryFinishBlock(e *codec.Entry) bool {
+// tryFinishBlock 检查是否需要结束当前block
+func (tb *tableBuilder) tryFinishBlock(e *utils.Entry) bool {
 	if tb.curBlock == nil {
 		return true
 	}
@@ -122,8 +131,10 @@ func (tb *tableBuilder) tryFinishBlock(e *codec.Entry) bool {
 		return false
 	}
 	// Integer overflow check for statements below.
+	// 检查整数溢出
 	utils.CondPanic(!((uint32(len(tb.curBlock.entryOffsets))+1)*4+4+8+4 < math.MaxUint32), errors.New("Integer overflow"))
 	// We should include current entry also in size, that's why +1 to len(b.entryOffsets).
+	// 估计添加新条目后block的大小
 	entriesOffsetsSize := uint32((len(tb.curBlock.entryOffsets)+1)*4 +
 		4 + // size of list
 		8 + // Sum64 in checksum proto
@@ -154,14 +165,14 @@ func (tb *tableBuilder) finishBlock() {
 		return
 	}
 	// Append the entryOffsets and its length.
-	tb.append(codec.U32SliceToBytes(tb.curBlock.entryOffsets))
-	tb.append(codec.U32ToBytes(uint32(len(tb.curBlock.entryOffsets))))
+	tb.append(utils.U32SliceToBytes(tb.curBlock.entryOffsets))
+	tb.append(utils.U32ToBytes(uint32(len(tb.curBlock.entryOffsets))))
 
 	checksum := tb.calculateChecksum(tb.curBlock.data[:tb.curBlock.end])
 
 	// Append the block checksum and its length.
 	tb.append(checksum)
-	tb.append(codec.U32ToBytes(uint32(len(checksum))))
+	tb.append(utils.U32ToBytes(uint32(len(checksum))))
 
 	tb.blockList = append(tb.blockList, tb.curBlock)
 
@@ -169,12 +180,13 @@ func (tb *tableBuilder) finishBlock() {
 	return
 }
 
-// append appends to curBlock.data
+// append 向curBlock.data追加数据
 func (tb *tableBuilder) append(data []byte) {
 	dst := tb.allocate(len(data))
 	utils.CondPanic(len(data) != copy(dst, data), errors.New("tableBuilder.append data"))
 }
 
+// allocate 在curBlock.data中分配空间
 func (tb *tableBuilder) allocate(need int) []byte {
 	bb := tb.curBlock
 	if len(bb.data[bb.end:]) < need {
@@ -193,10 +205,10 @@ func (tb *tableBuilder) allocate(need int) []byte {
 
 func (tb *tableBuilder) calculateChecksum(data []byte) []byte {
 	checkSum := utils.CalculateChecksum(data)
-	return codec.U64ToBytes(checkSum)
+	return utils.U64ToBytes(checkSum)
 }
 
-// keyDiff returns a suffix of newKey that is different from b.baseKey.
+// keyDiff 计算newKey与baseKey的差异部分
 func (tb *tableBuilder) keyDiff(newKey []byte) []byte {
 	var i int
 	for i = 0; i < len(newKey) && i < len(tb.curBlock.baseKey); i++ {
@@ -207,6 +219,7 @@ func (tb *tableBuilder) keyDiff(newKey []byte) []byte {
 	return newKey[i:]
 }
 
+// flush 将构建好的SSTable写入存储
 func (tb *tableBuilder) flush(sst *file.SSTable) error {
 	bd := tb.done()
 	buf := make([]byte, bd.size)
@@ -220,19 +233,21 @@ func (tb *tableBuilder) flush(sst *file.SSTable) error {
 	return nil
 }
 
+// Copy 将buildData复制到目标缓冲区
 func (bd *buildData) Copy(dst []byte) int {
 	var written int
 	for _, bl := range bd.blockList {
 		written += copy(dst[written:], bl.data[:bl.end])
 	}
 	written += copy(dst[written:], bd.index)
-	written += copy(dst[written:], codec.U32ToBytes(uint32(len(bd.index))))
+	written += copy(dst[written:], utils.U32ToBytes(uint32(len(bd.index))))
 
 	written += copy(dst[written:], bd.checksum)
-	written += copy(dst[written:], codec.U32ToBytes(uint32(len(bd.checksum))))
+	written += copy(dst[written:], utils.U32ToBytes(uint32(len(bd.checksum))))
 	return written
 }
 
+// done 完成SSTable的构建
 func (tb *tableBuilder) done() buildData {
 	tb.finishBlock() // This will never start a new block.
 	if len(tb.blockList) == 0 {
@@ -242,6 +257,7 @@ func (tb *tableBuilder) done() buildData {
 		blockList: tb.blockList,
 	}
 
+	// 布隆过滤器构建
 	var f utils.Filter
 	if tb.opt.BloomFalsePositive > 0 {
 		bits := utils.BloomBitsPerKey(len(tb.keyHashes), tb.opt.BloomFalsePositive)
@@ -256,6 +272,7 @@ func (tb *tableBuilder) done() buildData {
 	return bd
 }
 
+// buildIndex 构建SSTable的索引
 func (tb *tableBuilder) buildIndex(bloom []byte) ([]byte, uint32) {
 	tableIndex := &pb.TableIndex{}
 	if len(bloom) > 0 {
@@ -403,7 +420,7 @@ func (itr *blockIterator) setIdx(i int) {
 	valueOff := headerSize + h.diff
 	diffKey := entryData[headerSize:valueOff]
 	itr.key = append(itr.key[:h.overlap], diffKey...)
-	e := codec.NewEntry(itr.key, nil)
+	e := utils.NewEntry(itr.key, nil)
 	e.DecodeEntry(entryData[valueOff:])
 	itr.it = &Item{e: e}
 }

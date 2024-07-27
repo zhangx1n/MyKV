@@ -1,8 +1,7 @@
 package xkv
 
 import (
-	"github.com/zhangx1n/xkv/iterator"
-	"github.com/zhangx1n/xkv/utils/codec"
+	"github.com/zhangx1n/xkv/utils"
 	"testing"
 	"time"
 )
@@ -12,7 +11,7 @@ func TestAPI(t *testing.T) {
 	db := Open(opt)
 	defer func() { _ = db.Close() }()
 	// 写入
-	e := codec.NewEntry([]byte("hello"), []byte("xkv")).WithTTL(1 * time.Second)
+	e := utils.NewEntry([]byte("hello"), []byte("xKV")).WithTTL(1 * time.Second)
 	if err := db.Set(e); err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +22,7 @@ func TestAPI(t *testing.T) {
 		t.Logf("db.Get key=%s, value=%s, expiresAt=%d", entry.Key, entry.Value, entry.ExpiresAt)
 	}
 	// 迭代器
-	iter := db.NewIterator(&iterator.Options{
+	iter := db.NewIterator(&utils.Options{
 		Prefix: []byte("hello"),
 		IsAsc:  false,
 	})

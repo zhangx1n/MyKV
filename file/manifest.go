@@ -6,8 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/zhangx1n/xkv/pb"
 	"github.com/zhangx1n/xkv/utils"
-	"github.com/zhangx1n/xkv/utils/codec/pb"
 	"google.golang.org/protobuf/proto"
 	"hash/crc32"
 	"io"
@@ -353,7 +353,7 @@ func (mf *ManifestFile) RevertToManifest(idMap map[uint64]struct{}) error {
 	// 2. Delete files that shouldn't exist.
 	for id := range idMap {
 		if _, ok := mf.manifest.Tables[id]; !ok {
-			utils.Err(fmt.Errorf("Table file %d  not referenced in MANIFEST", id))
+			utils.Err(fmt.Errorf("Table file %d  not referenced in MANIFEST \n", id))
 			filename := utils.FileNameSSTable(mf.opt.Dir, id)
 			if err := os.Remove(filename); err != nil {
 				return errors.Wrapf(err, "While removing table %d", id)

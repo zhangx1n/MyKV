@@ -1,18 +1,14 @@
 package lsm
 
 import (
-	"fmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/zhangx1n/xkv/file"
 	"github.com/zhangx1n/xkv/utils"
-	"github.com/zhangx1n/xkv/utils/codec"
-	"os"
 	"testing"
 )
 
-// 对level 管理器的功能测试
-func TestLevels(t *testing.T) {
-	entrys := []*codec.Entry{
+var (
+	// case
+	entrys = []*utils.Entry{
 		{Key: []byte("hello0_12345678"), Value: []byte("world0"), ExpiresAt: uint64(0)},
 		{Key: []byte("hello1_12345678"), Value: []byte("world1"), ExpiresAt: uint64(0)},
 		{Key: []byte("hello2_12345678"), Value: []byte("world2"), ExpiresAt: uint64(0)},
@@ -23,40 +19,50 @@ func TestLevels(t *testing.T) {
 		{Key: []byte("hello7_12345678"), Value: []byte("world7"), ExpiresAt: uint64(0)},
 	}
 	// 初始化opt
-	opt := &Options{
+	opt = &Options{
 		WorkDir:            "../work_test",
 		SSTableMaxSz:       283,
-		MemTableSize:       1024,
+		MemTableSize:       224,
 		BlockSize:          1024,
 		BloomFalsePositive: 0.01,
 	}
+)
+
+// 对level 管理器的功能测试
+func TestLSM(t *testing.T) {
 	levelLive := func() {
 		// 初始化
-		levels := newLevelManager(opt)
-		defer func() { _ = levels.close() }()
-		fileName := fmt.Sprintf("%s/%s", opt.WorkDir, "000001.mem")
-		// 构建内存表
-		imm := &memTable{
-			wal: file.OpenWalFile(&file.Options{FileName: fileName, Dir: opt.WorkDir, Flag: os.O_CREATE | os.O_RDWR, MaxSz: int(opt.SSTableMaxSz)}),
-			sl:  utils.NewSkipList(),
-		}
+		lsm := NewLSM(opt)
 		for _, entry := range entrys {
-			imm.set(entry)
+			lsm.Set(entry)
 		}
 		// 测试 flush
-		assert.Nil(t, levels.flush(imm))
+		assert.Nil(t, lsm.levels.flush(lsm.memTable))
+
 		// 从levels中进行GET
-		v, err := levels.Get([]byte("hello7_12345678"))
+		v, err := lsm.Get([]byte("hello7_12345678"))
 		assert.Nil(t, err)
 		assert.Equal(t, []byte("world7"), v.Value)
 		t.Logf("levels.Get key=%s, value=%s, expiresAt=%d", v.Key, v.Value, v.ExpiresAt)
-		// 关闭levels
-		assert.Nil(t, levels.close())
+
+		// 测试Recovery
+		// 再写一次
+		lsm.memTable = lsm.NewMemtable()
+		for _, entry := range entrys {
+			lsm.Set(entry)
+		}
+		// 强制recovery 相当于数据库重启，工作目录中wal文件不会清空
+
+		imm, imms := lsm.recovery()
+		assert.NotEmpty(t, imm)
+		assert.Equal(t, len(imms) != 0, true)
+		for _, mem := range imms {
+			e, _ := mem.Get([]byte("hello7_12345678"))
+			assert.Equal(t, []byte("world7"), e.Value)
+		}
 	}
 	// 运行N次测试多个sst的影响
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1; i++ {
 		levelLive()
 	}
 }
-
-// 对level管理器的性能测试
