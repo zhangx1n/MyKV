@@ -62,7 +62,7 @@ func TestLSM(t *testing.T) {
 		}
 	}
 	// 运行N次测试多个sst的影响
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 2; i++ {
 		levelLive()
 	}
 }

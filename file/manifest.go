@@ -19,22 +19,25 @@ import (
 // ManifestFile 维护sst文件元信息的文件
 // manifest 比较特殊，不能使用mmap，需要保证实时的写入
 type ManifestFile struct {
-	opt      *Options
-	f        *os.File
-	lock     sync.Mutex
-	manifest *Manifest
+	opt                       *Options
+	f                         *os.File
+	lock                      sync.Mutex
+	deletionsRewriteThreshold int
+	manifest                  *Manifest
 }
 
-// Manifest xkv 元数据状态维护
+// Manifest xkv元数据状态维护
 type Manifest struct {
-	Levels []levelManifest          // level
-	Tables map[uint64]TableManifest // sst
+	Levels    []levelManifest
+	Tables    map[uint64]TableManifest
+	Creations int
+	Deletions int
 }
 
 // TableManifest 包含sst的基本信息
 type TableManifest struct {
 	Level    uint8
-	Checksum []byte
+	Checksum []byte // 方便今后扩展
 }
 type levelManifest struct {
 	Tables map[uint64]struct{} // Set of table id's
@@ -56,17 +59,14 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 		if !os.IsNotExist(err) {
 			return mf, err
 		}
-		// 如果文件不存在
-		// 创建一个新的空 Manifest 结构
 		m := createManifest()
-		// 调用 helpRewrite 函数来写入新的 Manifest 文件
 		fp, netCreations, err := helpRewrite(opt.Dir, m)
-		// 如果 netCreations 为 0（没有创建任何表），触发 panic
 		utils.CondPanic(netCreations == 0, errors.Wrap(err, utils.ErrReWriteFailure.Error()))
 		if err != nil {
 			return mf, err
 		}
 		mf.f = fp
+		f = fp
 		mf.manifest = m
 		return mf, nil
 	}
@@ -77,8 +77,7 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 		_ = f.Close()
 		return mf, err
 	}
-	// 重建 Manifest 结构和确定有效数据的截断偏移量
-	// Truncate file so we don't have a half-written entry at the end.
+	// 截断文件以删除可能的半写入条目
 	if err := f.Truncate(truncOffset); err != nil {
 		_ = f.Close()
 		return mf, err
@@ -95,6 +94,7 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 // ReplayManifestFile 对已经存在的manifest文件重新应用所有状态变更
 func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err error) {
 	r := &bufReader{reader: bufio.NewReader(fp)}
+	// 读取 magicText
 	var magicBuf [8]byte
 	if _, err := io.ReadFull(r, magicBuf[:]); err != nil {
 		return &Manifest{}, 0, utils.ErrBadMagic
@@ -102,6 +102,7 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 	if !bytes.Equal(magicBuf[0:4], utils.MagicText[:]) {
 		return &Manifest{}, 0, utils.ErrBadMagic
 	}
+	// 读取 version
 	version := binary.BigEndian.Uint32(magicBuf[4:8])
 	if version != uint32(utils.MagicVersion) {
 		return &Manifest{}, 0,
@@ -110,6 +111,7 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 
 	build := createManifest()
 	var offset int64
+	// 循环读取每个变更记录
 	for {
 		offset = r.count
 		var lenCrcBuf [8]byte
@@ -128,10 +130,12 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 			}
 			return &Manifest{}, 0, err
 		}
+		// 验证每个记录的 CRC 校验和
 		if crc32.Checksum(buf, utils.CastagnoliCrcTable) != binary.BigEndian.Uint32(lenCrcBuf[4:8]) {
 			return &Manifest{}, 0, utils.ErrBadChecksum
 		}
 
+		// 读取 changeSet
 		var changeSet pb.ManifestChangeSet
 		if err := proto.Unmarshal(buf, &changeSet); err != nil {
 			return &Manifest{}, 0, err
@@ -170,6 +174,7 @@ func applyManifestChange(build *Manifest, tc *pb.ManifestChange) error {
 			build.Levels = append(build.Levels, levelManifest{make(map[uint64]struct{})})
 		}
 		build.Levels[tc.Level].Tables[tc.Id] = struct{}{}
+		build.Creations++
 	case pb.ManifestChange_DELETE:
 		tm, ok := build.Tables[tc.Id]
 		if !ok {
@@ -177,6 +182,7 @@ func applyManifestChange(build *Manifest, tc *pb.ManifestChange) error {
 		}
 		delete(build.Levels[tm.Level].Tables, tc.Id)
 		delete(build.Tables, tc.Id)
+		build.Deletions++
 	default:
 		return fmt.Errorf("MANIFEST file has invalid manifestChange op")
 	}
@@ -226,10 +232,12 @@ func (mf *ManifestFile) rewrite() error {
 	if err := mf.f.Close(); err != nil {
 		return err
 	}
-	fp, _, err := helpRewrite(mf.opt.Dir, mf.manifest)
+	fp, nextCreations, err := helpRewrite(mf.opt.Dir, mf.manifest)
 	if err != nil {
 		return err
 	}
+	mf.manifest.Creations = nextCreations
+	mf.manifest.Deletions = 0
 	mf.f = fp
 	return nil
 }
@@ -248,9 +256,9 @@ func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 
 	netCreations := len(m.Tables)
 	changes := m.asChanges()
-	set := &pb.ManifestChangeSet{Changes: changes}
+	set := pb.ManifestChangeSet{Changes: changes}
 
-	changeBuf, err := proto.Marshal(set)
+	changeBuf, err := proto.Marshal(&set)
 	if err != nil {
 		fp.Close()
 		return nil, 0, err
@@ -307,14 +315,15 @@ func (mf *ManifestFile) addChanges(changesParam []*pb.ManifestChange) error {
 		return err
 	}
 
-	// Maybe we could use O_APPEND instead (on certain file systems)
+	// TODO 锁粒度可以优化
 	mf.lock.Lock()
 	defer mf.lock.Unlock()
 	if err := applyChangeSet(mf.manifest, &changes); err != nil {
 		return err
 	}
 	// Rewrite manifest if it'd shrink by 1/10 and it's big enough to care
-	if false {
+	if mf.manifest.Deletions > utils.ManifestDeletionsRewriteThreshold &&
+		mf.manifest.Deletions > utils.ManifestDeletionsRatio*(mf.manifest.Creations-mf.manifest.Deletions) {
 		if err := mf.rewrite(); err != nil {
 			return err
 		}
@@ -353,7 +362,7 @@ func (mf *ManifestFile) RevertToManifest(idMap map[uint64]struct{}) error {
 	// 2. Delete files that shouldn't exist.
 	for id := range idMap {
 		if _, ok := mf.manifest.Tables[id]; !ok {
-			utils.Err(fmt.Errorf("Table file %d  not referenced in MANIFEST \n", id))
+			utils.Err(fmt.Errorf("Table file %d  not referenced in MANIFEST", id))
 			filename := utils.FileNameSSTable(mf.opt.Dir, id)
 			if err := os.Remove(filename); err != nil {
 				return errors.Wrapf(err, "While removing table %d", id)
