@@ -26,7 +26,7 @@ type ManifestFile struct {
 	manifest                  *Manifest
 }
 
-// Manifest xkv元数据状态维护
+// Manifest kv 元数据状态维护
 type Manifest struct {
 	Levels    []levelManifest
 	Tables    map[uint64]TableManifest
@@ -77,7 +77,7 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 		_ = f.Close()
 		return mf, err
 	}
-	// 截断文件以删除可能的半写入条目
+	// Truncate file so we don't have a half-written entry at the end.
 	if err := f.Truncate(truncOffset); err != nil {
 		_ = f.Close()
 		return mf, err
@@ -94,7 +94,6 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 // ReplayManifestFile 对已经存在的manifest文件重新应用所有状态变更
 func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err error) {
 	r := &bufReader{reader: bufio.NewReader(fp)}
-	// 读取 magicText
 	var magicBuf [8]byte
 	if _, err := io.ReadFull(r, magicBuf[:]); err != nil {
 		return &Manifest{}, 0, utils.ErrBadMagic
@@ -102,7 +101,6 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 	if !bytes.Equal(magicBuf[0:4], utils.MagicText[:]) {
 		return &Manifest{}, 0, utils.ErrBadMagic
 	}
-	// 读取 version
 	version := binary.BigEndian.Uint32(magicBuf[4:8])
 	if version != uint32(utils.MagicVersion) {
 		return &Manifest{}, 0,
@@ -111,7 +109,6 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 
 	build := createManifest()
 	var offset int64
-	// 循环读取每个变更记录
 	for {
 		offset = r.count
 		var lenCrcBuf [8]byte
@@ -130,12 +127,10 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 			}
 			return &Manifest{}, 0, err
 		}
-		// 验证每个记录的 CRC 校验和
 		if crc32.Checksum(buf, utils.CastagnoliCrcTable) != binary.BigEndian.Uint32(lenCrcBuf[4:8]) {
 			return &Manifest{}, 0, utils.ErrBadChecksum
 		}
 
-		// 读取 changeSet
 		var changeSet pb.ManifestChangeSet
 		if err := proto.Unmarshal(buf, &changeSet); err != nil {
 			return &Manifest{}, 0, err

@@ -12,6 +12,7 @@ import (
 	"sync"
 )
 
+// WalFile _
 type WalFile struct {
 	lock    *sync.RWMutex
 	f       *MmapFile
@@ -64,8 +65,6 @@ func (wf *WalFile) Write(entry *utils.Entry) error {
 }
 
 // Iterate 从磁盘中遍历wal，获得数据
-// offset：一个无符号 32 位整数，表示从文件的哪个偏移量开始读取。
-// fn：一个函数，用于处理每个读取到的条目。
 func (wf *WalFile) Iterate(readOnly bool, offset uint32, fn utils.LogEntry) (uint32, error) {
 	// For now, read directly from file, because it allows
 	reader := bufio.NewReader(wf.f.NewReader(int(offset)))
@@ -78,7 +77,6 @@ func (wf *WalFile) Iterate(readOnly bool, offset uint32, fn utils.LogEntry) (uin
 	var validEndOffset uint32 = offset
 loop:
 	for {
-		// 使用 MakeEntry 方法从reader中读取条目，并根据读取结果进行相应处理
 		e, err := read.MakeEntry(reader)
 		switch {
 		case err == io.EOF:
@@ -126,9 +124,8 @@ type SafeRead struct {
 	LF           *WalFile
 }
 
-// MakeEntry 方法从读取器中读取一个条目，解码并验证其完整性。返回解码后的 Entry 和 error
+// MakeEntry _
 func (r *SafeRead) MakeEntry(reader io.Reader) (*utils.Entry, error) {
-	// 创建一个哈希读取器 tee，用于计算 CRC32 校验和。
 	tee := utils.NewHashReader(reader)
 	var h utils.WalHeader
 	hlen, err := h.Decode(tee)
@@ -138,7 +135,6 @@ func (r *SafeRead) MakeEntry(reader io.Reader) (*utils.Entry, error) {
 	if h.KeyLen > uint32(1<<16) { // Key length must be below uint16.
 		return nil, utils.ErrTruncate
 	}
-	// 根据头部信息中的键和值的长度，调整缓冲区 r.K 和 r.V 的大小。
 	kl := int(h.KeyLen)
 	if cap(r.K) < kl {
 		r.K = make([]byte, 2*kl)

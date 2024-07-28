@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/zhangx1n/xkv/file"
 	"github.com/zhangx1n/xkv/utils"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,7 @@ import (
 	"sync/atomic"
 )
 
-const memFileExt string = ".wal"
+const walFileExt string = ".wal"
 
 // MemTable
 type memTable struct {
@@ -74,7 +75,7 @@ func (m *memTable) Size() int64 {
 // recovery
 func (lsm *LSM) recovery() (*memTable, []*memTable) {
 	// 从 工作目录中获取所有文件
-	files, err := os.ReadDir(lsm.option.WorkDir)
+	files, err := ioutil.ReadDir(lsm.option.WorkDir)
 	if err != nil {
 		utils.Panic(err)
 		return nil, nil
@@ -82,11 +83,11 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 	var fids []int
 	// 识别 后缀为.wal的文件
 	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), memFileExt) {
+		if !strings.HasSuffix(file.Name(), walFileExt) {
 			continue
 		}
 		fsz := len(file.Name())
-		fid, err := strconv.ParseInt(file.Name()[:fsz-len(memFileExt)], 10, 64)
+		fid, err := strconv.ParseInt(file.Name()[:fsz-len(walFileExt)], 10, 64)
 		if err != nil {
 			utils.Panic(err)
 			return nil, nil
@@ -135,7 +136,7 @@ func (lsm *LSM) openMemTable(fid uint32) (*memTable, error) {
 	return mt, nil
 }
 func mtFilePath(dir string, fid uint32) string {
-	return filepath.Join(dir, fmt.Sprintf("%05d%s", fid, memFileExt))
+	return filepath.Join(dir, fmt.Sprintf("%05d%s", fid, walFileExt))
 }
 
 func (m *memTable) UpdateSkipList() error {

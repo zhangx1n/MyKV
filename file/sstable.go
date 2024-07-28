@@ -1,7 +1,6 @@
 package file
 
 import (
-	"encoding/json"
 	"github.com/pkg/errors"
 	"github.com/zhangx1n/xkv/pb"
 	"github.com/zhangx1n/xkv/utils"
@@ -38,13 +37,13 @@ func (ss *SSTable) Init() error {
 	if ko, err = ss.initTable(); err != nil {
 		return err
 	}
-	// 初始化 minKey
+	// init min key
 	keyBytes := ko.GetKey()
 	minKey := make([]byte, len(keyBytes))
 	copy(minKey, keyBytes)
 	ss.minKey = minKey
 
-	// 初始化 maxKey
+	// init max key
 	blockLen := len(ss.idxTables.Offsets)
 	ko = ss.idxTables.Offsets[blockLen-1]
 	keyBytes = ko.GetKey()
@@ -53,12 +52,10 @@ func (ss *SSTable) Init() error {
 	ss.maxKey = maxKey
 	return nil
 }
-
-// [数据块][索引块][索引长度(4字节)][校验和][校验和长度(4字节)]
 func (ss *SSTable) initTable() (bo *pb.BlockOffset, err error) {
 	readPos := len(ss.f.Data)
 
-	// 从最后 4 位读取校验和长度
+	// Read checksum len from the last 4 bytes.
 	readPos -= 4
 	buf := ss.readCheckError(readPos, 4)
 	checksumLen := int(utils.BytesToU32(buf))
@@ -66,16 +63,16 @@ func (ss *SSTable) initTable() (bo *pb.BlockOffset, err error) {
 		return nil, errors.New("checksum length less than zero. Data corrupted")
 	}
 
-	// 读取校验和
+	// Read checksum.
 	readPos -= checksumLen
 	expectedChk := ss.readCheckError(readPos, checksumLen)
 
-	// 读取索引长度
+	// Read index size from the footer.
 	readPos -= 4
 	buf = ss.readCheckError(readPos, 4)
 	ss.idxLen = int(utils.BytesToU32(buf))
 
-	// 读取索引
+	// Read index.
 	readPos -= ss.idxLen
 	ss.idxStart = readPos
 	data := ss.readCheckError(readPos, ss.idxLen)
@@ -120,23 +117,6 @@ func (ss *SSTable) HasBloomFilter() bool {
 	return ss.hasBloomFilter
 }
 
-// LoadData 加载数据块
-func (ss *SSTable) LoadData() (blocks [][]byte, offsets []int) {
-	ss.lock.RLock()
-	fileData := ss.f.Slice(0)
-	ss.lock.RUnlock()
-	m := make(map[string]interface{}, 0)
-	json.Unmarshal(fileData, &m)
-	if data, ok := m["data"]; !ok {
-		panic("sst data is nil")
-	} else {
-		// TODO 所有的数据都放在一个 block中
-		dd := data.(string)
-		blocks = append(blocks, []byte(dd))
-		offsets = append(offsets, 0)
-	}
-	return blocks, offsets
-}
 func (ss *SSTable) read(off, sz int) ([]byte, error) {
 	if len(ss.f.Data) > 0 {
 		if len(ss.f.Data[off:]) < sz {

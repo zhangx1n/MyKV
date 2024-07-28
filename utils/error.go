@@ -54,6 +54,7 @@ func Err(err error) error {
 	return err
 }
 
+// location 获取调用函数的文件名和行号。
 func location(deep int, fullPath bool) string {
 	_, file, line, ok := runtime.Caller(deep)
 	if !ok {
