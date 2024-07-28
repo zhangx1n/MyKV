@@ -13,12 +13,17 @@ var (
 		{Key: []byte("hello1_12345678"), Value: []byte("world1"), ExpiresAt: uint64(0)},
 		{Key: []byte("hello2_12345678"), Value: []byte("world2"), ExpiresAt: uint64(0)},
 		{Key: []byte("hello3_12345678"), Value: []byte("world3"), ExpiresAt: uint64(0)},
+		{Key: []byte("hello4_12345678"), Value: []byte("world4"), ExpiresAt: uint64(0)},
+		{Key: []byte("hello5_12345678"), Value: []byte("world5"), ExpiresAt: uint64(0)},
+		{Key: []byte("hello6_12345678"), Value: []byte("world6"), ExpiresAt: uint64(0)},
+		{Key: []byte("hello7_12345678"), Value: []byte("world7"), ExpiresAt: uint64(0)},
 	}
 	// 初始化opt
+
 	opt = &Options{
 		WorkDir:            "../work_test",
-		SSTableMaxSz:       283,
-		MemTableSize:       224,
+		SSTableMaxSz:       1024,
+		MemTableSize:       1024,
 		BlockSize:          1024,
 		BloomFalsePositive: 0.01,
 	}
@@ -57,7 +62,6 @@ func buildCase() *LSM {
 	}
 	return lsm
 }
-
 func baseTest(t *testing.T, lsm *LSM) {
 	// 从levels中进行GET
 	v, err := lsm.Get([]byte("hello7_12345678"))

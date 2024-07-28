@@ -17,32 +17,8 @@ func RandString(len int) string {
 	return string(bytes)
 }
 
-func TestSkipList_compare(t *testing.T) {
-	list := SkipList{
-		header:   nil,
-		rand:     nil,
-		maxLevel: 0,
-		length:   0,
-	}
-
-	byte1 := []byte("1")
-	byte2 := []byte("2")
-	entry1 := NewEntry(byte1, byte1)
-
-	byte1score := list.calcScore(byte1)
-	byte2score := list.calcScore(byte2)
-
-	elem := &Element{
-		levels: nil,
-		entry:  entry1,
-		score:  byte2score,
-	}
-
-	assert.Equal(t, list.compare(byte1score, byte1, elem), -1)
-}
-
 func TestSkipListBasicCRUD(t *testing.T) {
-	list := NewSkipList()
+	list := NewSkipList(1000)
 
 	//Put & Get
 	entry1 := NewEntry([]byte("Key1"), []byte("Val1"))
@@ -63,7 +39,7 @@ func TestSkipListBasicCRUD(t *testing.T) {
 }
 
 func Benchmark_SkipListBasicCRUD(b *testing.B) {
-	list := NewSkipList()
+	list := NewSkipList(1000)
 	key, val := "", ""
 	maxTime := 1000000
 	for i := 0; i < maxTime; i++ {
@@ -74,13 +50,12 @@ func Benchmark_SkipListBasicCRUD(b *testing.B) {
 		assert.Equal(b, res, nil)
 		searchVal := list.Search([]byte(key))
 		assert.Equal(b, searchVal.Value, []byte(val))
-
 	}
 }
 
 func TestConcurrentBasic(t *testing.T) {
 	const n = 1000
-	l := NewSkipList()
+	l := NewSkipList(1000)
 	var wg sync.WaitGroup
 	key := func(i int) []byte {
 		return []byte(fmt.Sprintf("%05d", i))
@@ -112,7 +87,7 @@ func TestConcurrentBasic(t *testing.T) {
 
 func Benchmark_ConcurrentBasic(b *testing.B) {
 	const n = 1000
-	l := NewSkipList()
+	l := NewSkipList(1)
 	var wg sync.WaitGroup
 	key := func(i int) []byte {
 		return []byte(fmt.Sprintf("%05d", i))

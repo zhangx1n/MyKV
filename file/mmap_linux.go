@@ -1,18 +1,18 @@
+//go:build linux
+
 package file
 
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/zhangx1n/xkv/utils"
+	"github.com/pkg/errors"
 	"github.com/zhangx1n/xkv/utils/mmap"
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/pkg/errors"
 )
 
-// MmapFile represents a mmap file and includes both the buffer to the data and the file descriptor.
+// MmapFile represents an mmapd file and includes both the buffer to the data and the file descriptor.
 type MmapFile struct {
 	Data []byte
 	Fd   *os.File
@@ -194,17 +194,18 @@ func SyncDir(dir string) error {
 
 // Truncature 兼容接口
 func (m *MmapFile) Truncature(maxSz int64) error {
-	var err error
-	if maxSz >= 0 {
-		if err = m.Fd.Truncate(maxSz); err != nil {
-			return fmt.Errorf("while truncate file: %s, error: %v\n", m.Fd.Name(), err)
-		}
-		if maxSz > int64(len(m.Data)) {
-			m.Data, err = mmap.Mremap(m.Data, int(maxSz))
-			return utils.Err(err)
-		}
+	if err := m.Sync(); err != nil {
+		return fmt.Errorf("while sync file: %s, error: %v\n", m.Fd.Name(), err)
 	}
-	return nil
+	if err := mmap.Munmap(m.Data); err != nil {
+		return fmt.Errorf("while munmap file: %s, error: %v\n", m.Fd.Name(), err)
+	}
+	if err := m.Fd.Truncate(maxSz); err != nil {
+		return fmt.Errorf("while truncate file: %s, error: %v\n", m.Fd.Name(), err)
+	}
+	var err error
+	m.Data, err = mmap.Mmap(m.Fd, true, maxSz) // Mmap up to max size.
+	return err
 }
 
 // ReName 兼容接口

@@ -1,11 +1,12 @@
+//go:build linux
+
 package mmap
 
 import (
+	"golang.org/x/sys/unix"
 	"os"
 	"reflect"
 	"unsafe"
-
-	"golang.org/x/sys/unix"
 )
 
 // mmap uses the mmap system call to memory-map a file. If writable is true,

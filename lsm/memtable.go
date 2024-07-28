@@ -36,7 +36,7 @@ func (lsm *LSM) NewMemtable() *memTable {
 		FID:      fid,
 		FileName: mtFilePath(lsm.option.WorkDir, fid),
 	}
-	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList(), lsm: lsm}
+	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList(int64(1 << 20)), lsm: lsm}
 }
 
 // Close
@@ -124,7 +124,7 @@ func (lsm *LSM) openMemTable(fid uint32) (*memTable, error) {
 		FID:      fid,
 		FileName: mtFilePath(lsm.option.WorkDir, fid),
 	}
-	s := utils.NewSkipList()
+	s := utils.NewSkipList(int64(1 << 20))
 	mt := &memTable{
 		sl:  s,
 		buf: &bytes.Buffer{},
