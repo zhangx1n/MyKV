@@ -359,11 +359,13 @@ func (t *table) StaleDataSize() uint32 { return t.ss.Indexs().StaleDataSize }
 // DecrRef decrements the refcount and possibly deletes the table
 func (t *table) DecrRef() error {
 	newRef := atomic.AddInt32(&t.ref, -1)
+	// 当 newRef 引用值为 0 时, 删除 sstable
 	if newRef == 0 {
 		// TODO 从缓存中删除
 		for i := 0; i < len(t.ss.Indexs().GetOffsets()); i++ {
 			t.lm.cache.blocks.Del(t.blockCacheKey(i))
 		}
+		// 删除 sstable 文件
 		if err := t.Delete(); err != nil {
 			return err
 		}
@@ -374,6 +376,8 @@ func (t *table) DecrRef() error {
 func (t *table) IncrRef() {
 	atomic.AddInt32(&t.ref, 1)
 }
+
+// decrRefs 在 blockCache 缓存中删除 sstable, 并删除 sstable 文件.
 func decrRefs(tables []*table) error {
 	for _, table := range tables {
 		if err := table.DecrRef(); err != nil {

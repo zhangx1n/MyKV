@@ -175,8 +175,6 @@ func (m *MmapFile) Sync() error {
 }
 
 func (m *MmapFile) Delete() error {
-	// Badger can set the m.Data directly, without setting any Fd. In that case, this should be a
-	// NOOP.
 	if m.Fd == nil {
 		return nil
 	}

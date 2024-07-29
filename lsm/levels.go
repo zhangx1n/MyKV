@@ -264,6 +264,7 @@ func (lh *levelHandler) overlappingTables(_ levelHandlerRLocked, kr keyRange) (i
 
 // replaceTables will replace tables[left:right] with newTables. Note this EXCLUDES tables[right].
 // You must call decr() to delete the old tables _after_ writing the update to the manifest.
+// 删除下层 level 中已被用来 compact 的旧表, 且添加经过合并 compact 新生成的新表.
 func (lh *levelHandler) replaceTables(toDel, toAdd []*table) error {
 	// Need to re-search the range of tables in this level to be replaced as other goroutines might
 	// be changing it as well.  (They can't touch our tables, but if they add/remove other tables,
@@ -304,6 +305,7 @@ func (lh *levelHandler) replaceTables(toDel, toAdd []*table) error {
 func (lh *levelHandler) deleteTables(toDel []*table) error {
 	lh.Lock() // s.Unlock() below
 
+	// 这里的 hashmap 只是为了查询 o(n) 到 o(1)
 	toDelMap := make(map[uint64]struct{})
 	for _, t := range toDel {
 		toDelMap[t.fid] = struct{}{}
@@ -323,5 +325,7 @@ func (lh *levelHandler) deleteTables(toDel []*table) error {
 
 	lh.Unlock() // Unlock s _before_ we DecrRef our tables, which can be slow.
 
+	// 去除 table 的引用关系, 并且删除 table
+	// 不用加锁, 因为其内部使用 atomic 原子操作.
 	return decrRefs(toDel)
 }
