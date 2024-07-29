@@ -21,6 +21,6 @@ func newCache(opt *Options) *cache {
 	return &cache{indexs: utils.NewMap(), blocks: utils.NewMap()}
 }
 
-func (c *cache) addIndex(fid uint32, t *table) {
+func (c *cache) addIndex(fid uint64, t *table) {
 	c.indexs.Set(fid, t)
 }

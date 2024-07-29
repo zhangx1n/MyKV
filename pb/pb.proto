@@ -1,5 +1,6 @@
 // Use protos/gen.sh to generate .pb.go files.
 syntax = "proto3";
+
 package pb;
 option go_package = "./;pb";
 
@@ -34,16 +35,16 @@ message ManifestChange {
   uint32 Level = 3; // Only used for CREATE
   bytes Checksum = 4; // Only used for CREATE
 }
-
 message TableIndex{
   repeated BlockOffset offsets = 1;
-  bytes bloomFilter = 2;
+  bytes  bloomFilter = 2;
   uint64 maxVersion = 3;
   uint32 keyCount = 4;
+  uint32 staleDataSize = 5;
 }
 
 message BlockOffset{
-  bytes key = 1;  // 存储数据块的第一个键
-  uint32 offset = 2;  // 数据块在 sst 文件中的偏移量
-  uint32 len = 3; // 记录数据块的长度
+  bytes key = 1;
+  uint32 offset = 2;
+  uint32 len = 3;
 }

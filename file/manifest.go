@@ -26,7 +26,7 @@ type ManifestFile struct {
 	manifest                  *Manifest
 }
 
-// Manifest kv 元数据状态维护
+// Manifest xkv 元数据状态维护
 type Manifest struct {
 	Levels    []levelManifest
 	Tables    map[uint64]TableManifest
@@ -302,6 +302,11 @@ func (mf *ManifestFile) Close() error {
 		return err
 	}
 	return nil
+}
+
+// AddChanges 对外暴露的写比那更丰富
+func (mf *ManifestFile) AddChanges(changesParam []*pb.ManifestChange) error {
+	return mf.addChanges(changesParam)
 }
 func (mf *ManifestFile) addChanges(changesParam []*pb.ManifestChange) error {
 	changes := pb.ManifestChangeSet{Changes: changesParam}

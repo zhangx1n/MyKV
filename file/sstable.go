@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"sync"
+	"syscall"
+	"time"
 )
 
 // SSTable 文件的内存封装
@@ -20,7 +22,8 @@ type SSTable struct {
 	hasBloomFilter bool
 	idxLen         int
 	idxStart       int
-	fid            uint32
+	fid            uint64
+	createdAt      time.Time
 }
 
 // OpenSStable 打开一个 sst文件
@@ -37,20 +40,22 @@ func (ss *SSTable) Init() error {
 	if ko, err = ss.initTable(); err != nil {
 		return err
 	}
+	// 从文件中获取创建时间
+	stat, _ := ss.f.Fd.Stat()
+	statType := stat.Sys().(*syscall.Stat_t)
+	ss.createdAt = time.Unix(statType.Ctim.Sec, statType.Ctim.Nsec)
 	// init min key
 	keyBytes := ko.GetKey()
 	minKey := make([]byte, len(keyBytes))
 	copy(minKey, keyBytes)
 	ss.minKey = minKey
-
-	// init max key
-	blockLen := len(ss.idxTables.Offsets)
-	ko = ss.idxTables.Offsets[blockLen-1]
-	keyBytes = ko.GetKey()
-	maxKey := make([]byte, 0)
-	copy(maxKey, keyBytes)
-	ss.maxKey = maxKey
+	ss.maxKey = minKey
 	return nil
+}
+
+// SetMaxKey max 需要使用table的迭代器，来获取最后一个block的最后一个key
+func (ss *SSTable) SetMaxKey(maxKey []byte) {
+	ss.maxKey = maxKey
 }
 func (ss *SSTable) initTable() (bo *pb.BlockOffset, err error) {
 	readPos := len(ss.f.Data)
@@ -108,7 +113,7 @@ func (ss *SSTable) MinKey() []byte {
 }
 
 // FID 获取fid
-func (ss *SSTable) FID() uint32 {
+func (ss *SSTable) FID() uint64 {
 	return ss.fid
 }
 
@@ -139,4 +144,26 @@ func (ss *SSTable) readCheckError(off, sz int) []byte {
 // return nil slice and io.EOF.
 func (ss *SSTable) Bytes(off, sz int) ([]byte, error) {
 	return ss.f.Bytes(off, sz)
+}
+
+// Size 返回底层文件的尺寸
+func (ss *SSTable) Size() int64 {
+	fileStats, err := ss.f.Fd.Stat()
+	utils.Panic(err)
+	return fileStats.Size()
+}
+
+// GetCreatedAt _
+func (ss *SSTable) GetCreatedAt() *time.Time {
+	return &ss.createdAt
+}
+
+// Detele _
+func (ss *SSTable) Detele() error {
+	return ss.f.Delete()
+}
+
+// Truncature _
+func (ss *SSTable) Truncature(size int64) error {
+	return ss.f.Truncature(size)
 }

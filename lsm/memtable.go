@@ -28,13 +28,13 @@ type memTable struct {
 
 // NewMemtable _
 func (lsm *LSM) NewMemtable() *memTable {
-	fid := atomic.AddUint32(&lsm.maxMemFID, 1)
+	newFid := atomic.AddUint64(&(lsm.levels.maxFID), 1)
 	fileOpt := &file.Options{
 		Dir:      lsm.option.WorkDir,
 		Flag:     os.O_CREATE | os.O_RDWR,
 		MaxSz:    int(lsm.option.MemTableSize), //TODO wal 要设置多大比较合理？ 姑且跟sst一样大
-		FID:      fid,
-		FileName: mtFilePath(lsm.option.WorkDir, fid),
+		FID:      newFid,
+		FileName: mtFilePath(lsm.option.WorkDir, newFid),
 	}
 	return &memTable{wal: file.OpenWalFile(fileOpt), sl: utils.NewSkipList(int64(1 << 20)), lsm: lsm}
 }
@@ -80,31 +80,33 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 		utils.Panic(err)
 		return nil, nil
 	}
-	var fids []int
+	var fids []uint64
+	maxFid := lsm.levels.maxFID
 	// 识别 后缀为.wal的文件
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), walFileExt) {
 			continue
 		}
 		fsz := len(file.Name())
-		fid, err := strconv.ParseInt(file.Name()[:fsz-len(walFileExt)], 10, 64)
+		fid, err := strconv.ParseUint(file.Name()[:fsz-len(walFileExt)], 10, 64)
+		// 考虑 wal文件的存在 更新maxFid
+		if maxFid < fid {
+			maxFid = fid
+		}
 		if err != nil {
 			utils.Panic(err)
 			return nil, nil
 		}
-		fids = append(fids, int(fid))
+		fids = append(fids, fid)
 	}
 	// 排序一下子
 	sort.Slice(fids, func(i, j int) bool {
 		return fids[i] < fids[j]
 	})
-	if len(fids) != 0 {
-		atomic.StoreUint32(&lsm.maxMemFID, uint32(fids[len(fids)-1]))
-	}
 	imms := []*memTable{}
 	// 遍历fid 做处理
 	for _, fid := range fids {
-		mt, err := lsm.openMemTable(uint32(fid))
+		mt, err := lsm.openMemTable(fid)
 		utils.CondPanic(err != nil, err)
 		if mt.sl.Size() == 0 {
 			// mt.DecrRef()
@@ -113,10 +115,12 @@ func (lsm *LSM) recovery() (*memTable, []*memTable) {
 		// TODO 如果最后一个跳表没写满会怎么样？这不就浪费空间了吗
 		imms = append(imms, mt)
 	}
+	// 更新最终的maxfid，初始化一定是串行执行的，因此不需要原子操作
+	lsm.levels.maxFID = maxFid
 	return lsm.NewMemtable(), imms
 }
 
-func (lsm *LSM) openMemTable(fid uint32) (*memTable, error) {
+func (lsm *LSM) openMemTable(fid uint64) (*memTable, error) {
 	fileOpt := &file.Options{
 		Dir:      lsm.option.WorkDir,
 		Flag:     os.O_CREATE | os.O_RDWR,
@@ -135,7 +139,7 @@ func (lsm *LSM) openMemTable(fid uint32) (*memTable, error) {
 	utils.CondPanic(err != nil, errors.WithMessage(err, "while updating skiplist"))
 	return mt, nil
 }
-func mtFilePath(dir string, fid uint32) string {
+func mtFilePath(dir string, fid uint64) string {
 	return filepath.Join(dir, fmt.Sprintf("%05d%s", fid, walFileExt))
 }
 
@@ -158,7 +162,6 @@ func (m *memTable) replayFunction(opt *Options) func(*utils.Entry, *utils.ValueP
 		if ts := utils.ParseTs(e.Key); ts > m.maxVersion {
 			m.maxVersion = ts
 		}
-		m.sl.Add(e)
-		return nil
+		return m.sl.Add(e)
 	}
 }

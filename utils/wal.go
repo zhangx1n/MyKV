@@ -57,23 +57,26 @@ func WalCodec(buf *bytes.Buffer, e *Entry) int {
 	}
 
 	hash := crc32.New(CastagnoliCrcTable)
-	// 将数据同时写入 buf 和 hash，以便在写入数据的同时计算 CRC32 校验和。
 	writer := io.MultiWriter(buf, hash)
 
 	// encode header.
 	var headerEnc [maxHeaderSize]byte
 	sz := h.Encode(headerEnc[:])
-	// 写入 header，key, value
 	Panic2(writer.Write(headerEnc[:sz]))
 	Panic2(writer.Write(e.Key))
 	Panic2(writer.Write(e.Value))
-	// 创建一个字节数组 crcBuf，用于存储 CRC32 校验和。调用 hash.Sum32 获取当前哈希值，
-	// 并将其写入 crcBuf。然后将 crcBuf 写入 buf。
+	// write crc32 hash.
 	var crcBuf [crc32.Size]byte
 	binary.BigEndian.PutUint32(crcBuf[:], hash.Sum32())
 	Panic2(buf.Write(crcBuf[:]))
 	// return encoded length.
 	return len(headerEnc[:sz]) + len(e.Key) + len(e.Value) + len(crcBuf)
+}
+
+// EstimateWalCodecSize 预估当前kv 写入wal文件占用的空间大小
+func EstimateWalCodecSize(e *Entry) int {
+	return len(e.Key) + len(e.Value) + 8 /* ExpiresAt uint64 */ +
+		crc32.Size + maxHeaderSize
 }
 
 type HashReader struct {

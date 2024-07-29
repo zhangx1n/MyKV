@@ -2,12 +2,13 @@ package utils
 
 import "sync"
 
-// Closer 用于资源回收的信号控制
+// Closer _用于资源回收的信号控制
 type Closer struct {
 	waiting     sync.WaitGroup
 	closeSignal chan struct{}
 }
 
+// NewCloser _
 func NewCloser(i int) *Closer {
 	closer := &Closer{waiting: sync.WaitGroup{}}
 	closer.waiting.Add(i)
@@ -29,4 +30,9 @@ func (c *Closer) Done() {
 // Wait 返回关闭信号
 func (c *Closer) Wait() chan struct{} {
 	return c.closeSignal
+}
+
+// Add 添加wait 计数
+func (c *Closer) Add(n int) {
+	c.waiting.Add(n)
 }
