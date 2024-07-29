@@ -71,7 +71,6 @@ func buildLSM() *LSM {
 	lsm := NewLSM(opt)
 	return lsm
 }
-
 func buildEntry() *utils.Entry {
 	rand.Seed(time.Now().Unix())
 	key := []byte(fmt.Sprintf("%s%s", randStr(16), "12345678"))

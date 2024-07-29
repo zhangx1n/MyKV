@@ -185,7 +185,7 @@ func (tb *tableBuilder) finishBlock() {
 	tb.blockList = append(tb.blockList, tb.curBlock)
 	// TODO: 预估整理builder写入磁盘后，sst文件的大小
 	tb.keyCount += uint32(len(tb.curBlock.entryOffsets))
-	tb.curBlock = nil
+	tb.curBlock = nil // 表示当前block 已经被序列化到内存
 	return
 }
 
@@ -433,6 +433,8 @@ func (itr *blockIterator) setIdx(i int) {
 	val := &utils.ValueStruct{}
 	val.DecodeValue(entryData[valueOff:])
 	itr.val = val.Value
+	e.Value = val.Value
+	e.ExpiresAt = val.ExpiresAt
 	itr.it = &Item{e: e}
 }
 

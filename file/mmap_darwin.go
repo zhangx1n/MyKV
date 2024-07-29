@@ -4,8 +4,10 @@ package file
 
 // MmapFile represents an mmapd file and includes both the buffer to the data and the file descriptor.
 type MmapFile struct {
+	// 对应的是内存缓冲区
 	Data []byte
-	Fd   *os.File
+	// 对应的是磁盘
+	Fd *os.File
 }
 
 // OpenMmapFileUsing os
@@ -32,6 +34,9 @@ func OpenMmapFileUsing(fd *os.File, sz int, writable bool) (*MmapFile, error) {
 		return nil, errors.Wrapf(err, "while mmapping %s with size: %d", fd.Name(), fileSize)
 	}
 
+	// 如果fileSize == 0代表没刷盘
+	// 这时候sz = 0 且fileSize = 0，这时候没有走截断的操作，这时候buf为0
+	// 相当于这时候文件没有被创建，这时候做一次强制关联
 	if fileSize == 0 {
 		dir, _ := filepath.Split(filename)
 		go SyncDir(dir)
@@ -127,6 +132,32 @@ func (m *MmapFile) AllocateSlice(sz, offset int) ([]byte, int, error) {
 	return m.Data[start : start+sz], start + sz, nil
 }
 
+const oneGB = 1 << 30
+
+// AppendBuffer 向内存中追加一个buffer，如果空间不足则重新映射，扩大空间
+func (m *MmapFile) AppendBuffer(offset uint32, buf []byte) error {
+	size := len(m.Data)
+	needSize := len(buf)
+	end := int(offset) + needSize
+	if end > size {
+		growBy := size
+		if growBy > oneGB {
+			growBy = oneGB
+		}
+		if growBy < needSize {
+			growBy = needSize
+		}
+		if err := m.Truncature(int64(end)); err != nil {
+			return err
+		}
+	}
+	dLen := copy(m.Data[offset:end], buf)
+	if dLen != needSize {
+		return errors.Errorf("dLen != needSize AppendBuffer failed")
+	}
+	return nil
+}
+
 func (m *MmapFile) Sync() error {
 	if m == nil {
 		return nil
@@ -135,8 +166,6 @@ func (m *MmapFile) Sync() error {
 }
 
 func (m *MmapFile) Delete() error {
-	// Badger can set the m.Data directly, without setting any Fd. In that case, this should be a
-	// NOOP.
 	if m.Fd == nil {
 		return nil
 	}

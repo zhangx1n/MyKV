@@ -26,7 +26,7 @@ type ManifestFile struct {
 	manifest                  *Manifest
 }
 
-// Manifest xkv 元数据状态维护
+// Manifest corekv 元数据状态维护
 type Manifest struct {
 	Levels    []levelManifest
 	Tables    map[uint64]TableManifest
@@ -51,15 +51,19 @@ type TableMeta struct {
 
 // OpenManifestFile 打开manifest文件
 func OpenManifestFile(opt *Options) (*ManifestFile, error) {
+	// 参数是manifest的工作目录，工作目录里面的哪个文件
 	path := filepath.Join(opt.Dir, utils.ManifestFilename)
+	// 创建manifestfile文件
 	mf := &ManifestFile{lock: sync.Mutex{}, opt: opt}
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	// 如果打开失败 则尝试创建一个新的 manifest file
+	// 这个时候意味着db是一个重启操作
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return mf, err
 		}
 		m := createManifest()
+		// 进行覆写逻辑
 		fp, netCreations, err := helpRewrite(opt.Dir, m)
 		utils.CondPanic(netCreations == 0, errors.Wrap(err, utils.ErrReWriteFailure.Error()))
 		if err != nil {
@@ -71,17 +75,19 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 		return mf, nil
 	}
 
-	// 如果打开 则对manifest文件重放
+	// 如果打开 则对manifest文件重放,truncoffset是返回现在的偏移量
 	manifest, truncOffset, err := ReplayManifestFile(f)
 	if err != nil {
 		_ = f.Close()
 		return mf, err
 	}
 	// Truncate file so we don't have a half-written entry at the end.
+	// 对当前的文件进行截断
 	if err := f.Truncate(truncOffset); err != nil {
 		_ = f.Close()
 		return mf, err
 	}
+	// 当前offset做seek，这样对前面的数据就不会有影响了
 	if _, err = f.Seek(0, io.SeekEnd); err != nil {
 		_ = f.Close()
 		return mf, err
@@ -93,14 +99,17 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 
 // ReplayManifestFile 对已经存在的manifest文件重新应用所有状态变更
 func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err error) {
+	// 对buffer进行读写
 	r := &bufReader{reader: bufio.NewReader(fp)}
 	var magicBuf [8]byte
 	if _, err := io.ReadFull(r, magicBuf[:]); err != nil {
 		return &Manifest{}, 0, utils.ErrBadMagic
 	}
+	// 魔术
 	if !bytes.Equal(magicBuf[0:4], utils.MagicText[:]) {
 		return &Manifest{}, 0, utils.ErrBadMagic
 	}
+	// 版本号
 	version := binary.BigEndian.Uint32(magicBuf[4:8])
 	if version != uint32(utils.MagicVersion) {
 		return &Manifest{}, 0,
@@ -109,8 +118,10 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 
 	build := createManifest()
 	var offset int64
+	// 循环解析changes
 	for {
 		offset = r.count
+		// 长度和crc
 		var lenCrcBuf [8]byte
 		_, err := io.ReadFull(r, lenCrcBuf[:])
 		if err != nil {
@@ -119,19 +130,23 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 			}
 			return &Manifest{}, 0, err
 		}
+		// 前四个存储len
 		length := binary.BigEndian.Uint32(lenCrcBuf[0:4])
 		var buf = make([]byte, length)
+		// 这里读的就是manifestchangeset
 		if _, err := io.ReadFull(r, buf); err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				break
 			}
 			return &Manifest{}, 0, err
 		}
+		// 检查有没有数据变更
 		if crc32.Checksum(buf, utils.CastagnoliCrcTable) != binary.BigEndian.Uint32(lenCrcBuf[4:8]) {
 			return &Manifest{}, 0, utils.ErrBadChecksum
 		}
 
 		var changeSet pb.ManifestChangeSet
+		// 对buf进行解码
 		if err := proto.Unmarshal(buf, &changeSet); err != nil {
 			return &Manifest{}, 0, err
 		}
@@ -147,6 +162,7 @@ func ReplayManifestFile(fp *os.File) (ret *Manifest, truncOffset int64, err erro
 // This is not a "recoverable" error -- opening the KV store fails because the MANIFEST file is
 // just plain broken.
 func applyChangeSet(build *Manifest, changeSet *pb.ManifestChangeSet) error {
+	// 由于changes里面是一个list，进行for循环
 	for _, change := range changeSet.Changes {
 		if err := applyManifestChange(build, change); err != nil {
 			return err
@@ -155,12 +171,15 @@ func applyChangeSet(build *Manifest, changeSet *pb.ManifestChangeSet) error {
 	return nil
 }
 
+// 重播，用来恢复数据
 func applyManifestChange(build *Manifest, tc *pb.ManifestChange) error {
 	switch tc.Op {
+	// 创建
 	case pb.ManifestChange_CREATE:
 		if _, ok := build.Tables[tc.Id]; ok {
 			return fmt.Errorf("MANIFEST invalid, table %d exists", tc.Id)
 		}
+		// 如果是创建操作的话，吧table放到tables的数组中
 		build.Tables[tc.Id] = TableManifest{
 			Level:    uint8(tc.Level),
 			Checksum: append([]byte{}, tc.Checksum...),
@@ -169,12 +188,15 @@ func applyManifestChange(build *Manifest, tc *pb.ManifestChange) error {
 			build.Levels = append(build.Levels, levelManifest{make(map[uint64]struct{})})
 		}
 		build.Levels[tc.Level].Tables[tc.Id] = struct{}{}
+		// 创建数++
 		build.Creations++
+	// 删除
 	case pb.ManifestChange_DELETE:
 		tm, ok := build.Tables[tc.Id]
 		if !ok {
 			return fmt.Errorf("MANIFEST removes non-existing table %d", tc.Id)
 		}
+		// 删除的时候需要从levels和tables数组中都删除
 		delete(build.Levels[tm.Level].Tables, tc.Id)
 		delete(build.Tables, tc.Id)
 		build.Deletions++
@@ -267,6 +289,7 @@ func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 		fp.Close()
 		return nil, 0, err
 	}
+	// 刷盘
 	if err := fp.Sync(); err != nil {
 		fp.Close()
 		return nil, 0, err
@@ -277,6 +300,7 @@ func helpRewrite(dir string, m *Manifest) (*os.File, int, error) {
 		return nil, 0, err
 	}
 	manifestPath := filepath.Join(dir, utils.ManifestFilename)
+	// 重命名操作
 	if err := os.Rename(rewritePath, manifestPath); err != nil {
 		return nil, 0, err
 	}
@@ -322,6 +346,7 @@ func (mf *ManifestFile) addChanges(changesParam []*pb.ManifestChange) error {
 		return err
 	}
 	// Rewrite manifest if it'd shrink by 1/10 and it's big enough to care
+	// 主要原因就是删除和变更操作要保持1:10
 	if mf.manifest.Deletions > utils.ManifestDeletionsRewriteThreshold &&
 		mf.manifest.Deletions > utils.ManifestDeletionsRatio*(mf.manifest.Creations-mf.manifest.Deletions) {
 		if err := mf.rewrite(); err != nil {
@@ -351,6 +376,7 @@ func (mf *ManifestFile) AddTableMeta(levelNum int, t *TableMeta) (err error) {
 // RevertToManifest checks that all necessary table files exist and removes all table files not
 // referenced by the manifest.  idMap is a set of table file id's that were read from the directory
 // listing.
+// 求交集，删除不存在的
 func (mf *ManifestFile) RevertToManifest(idMap map[uint64]struct{}) error {
 	// 1. Check all files in manifest exist.
 	for id := range mf.manifest.Tables {
