@@ -20,7 +20,7 @@ func (v *VLog) Close() error {
 // NewVLog
 func NewVLog(opt *Options) *VLog {
 	v := &VLog{}
-	v.closer = utils.NewCloser(1)
+	v.closer = utils.NewCloser()
 	return v
 }
 
@@ -29,7 +29,7 @@ func (v *VLog) StartGC() {
 	defer v.closer.Done()
 	for {
 		select {
-		case <-v.closer.Wait():
+		case <-v.closer.CloseSignal:
 			return
 		}
 		// gc logic...
@@ -42,6 +42,6 @@ func (v *VLog) Set(entry *utils.Entry) error {
 }
 
 func (v *VLog) Get(entry *utils.Entry) (*utils.Entry, error) {
-	// valuePtr := codec.ValuePtrDecode(entry.Value)
+	// valuePtr := utils.ValuePtrDecode(entry.Value)
 	return nil, nil
 }

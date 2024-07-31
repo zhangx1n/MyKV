@@ -147,13 +147,20 @@ type levelHandler struct {
 }
 
 func (lh *levelHandler) close() error {
+	for i := range lh.tables {
+		if err := lh.tables[i].ss.Close(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
+
 func (lh *levelHandler) add(t *table) {
 	lh.Lock()
 	defer lh.Unlock()
 	lh.tables = append(lh.tables, t)
 }
+
 func (lh *levelHandler) addBatch(ts []*table) {
 	lh.Lock()
 	defer lh.Unlock()

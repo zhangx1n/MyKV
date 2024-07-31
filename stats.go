@@ -17,7 +17,7 @@ func (s *Stats) StartStats() {
 	defer s.closer.Done()
 	for {
 		select {
-		case <-s.closer.Wait():
+		case <-s.closer.CloseSignal:
 			return
 		}
 		// stats logic...
@@ -27,7 +27,7 @@ func (s *Stats) StartStats() {
 // NewStats
 func newStats(opt *Options) *Stats {
 	s := &Stats{}
-	s.closer = utils.NewCloser(1)
-	s.EntryNum = 1 // 这里直接写1
+	s.closer = utils.NewCloser()
+	s.EntryNum = 1 // 这里直接写
 	return s
 }
