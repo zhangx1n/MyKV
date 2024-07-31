@@ -870,10 +870,29 @@ func iteratorsReversed(th []*table, opt *utils.Options) []utils.Iterator {
 	return out
 }
 
+func (lm *levelManager) updateDiscardStats(discardStats map[uint32]int64) {
+	select {
+	case *lm.lsm.option.DiscardStatsCh <- discardStats:
+	default:
+	}
+}
+
 // 真正执行并行压缩的子压缩文件
 func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef,
 	inflightBuilders *utils.Throttle, res chan<- *table) {
 	var lastKey []byte
+	// 更新 discardStats
+	discardStats := make(map[uint32]int64)
+	defer func() {
+		lm.updateDiscardStats(discardStats)
+	}()
+	updateStats := func(e *utils.Entry) {
+		if e.Meta&utils.BitValuePointer > 0 {
+			var vp utils.ValuePtr
+			vp.Decode(e.Value)
+			discardStats[vp.Fid] += int64(vp.Len)
+		}
+	}
 	addKeys := func(builder *tableBuilder) {
 		var tableKr keyRange
 		for ; it.Valid(); it.Next() {
@@ -901,9 +920,9 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 			}
 			// TODO 这里要区分值的指针
 			// 判断是否是过期内容，是的话就删除
-			// 把 key 及 value 加到 builder 构建器里.
 			switch {
 			case isExpired:
+				updateStats(it.Item().Entry())
 				builder.AddStaleKey(it.Item().Entry())
 			default:
 				builder.AddKey(it.Item().Entry())
@@ -915,12 +934,11 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 	if len(kr.left) > 0 {
 		it.Seek(kr.left)
 	} else {
-		// 内部会调用 seekToFirst, 定位到头部.
+		//
 		it.Rewind()
 	}
 	for it.Valid() {
 		key := it.Item().Entry().Key
-		// 如果当前迭代出的 key 大于等于 keyRange 则跳出迭代器循环.
 		if len(kr.right) > 0 && utils.CompareKeys(key, kr.right) >= 0 {
 			break
 		}
@@ -928,7 +946,7 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 		// TODO 这里可能要大改，对open table的参数复制一份opt
 		builder := newTableBuilerWithSSTSize(lm.opt, cd.t.fileSz[cd.nextLevel.levelNum])
 
-		// 把数据添加到 sstable builder
+		// This would do the iteration and add keys to builder.
 		addKeys(builder)
 
 		// It was true that it.Valid() at least once in the loop above, which means we
@@ -944,14 +962,12 @@ func (lm *levelManager) subcompact(it utils.Iterator, kr keyRange, cd compactDef
 			break
 		}
 		// 充分发挥 ssd的并行 写入特性
-		// 异步使用 builder 来构建 table, table 需要写到文件里, 且发送到 res 管道.
 		go func(builder *tableBuilder) {
 			defer inflightBuilders.Done(nil)
 			defer builder.Close()
 			var tbl *table
 			newFID := atomic.AddUint64(&lm.maxFID, 1) // compact的时候是没有memtable的，这里自增maxFID即可。
 			// TODO 这里的sst文件需要根据level大小变化
-			// 把数据写到 sstable 文件里.
 			sstName := utils.FileNameSSTable(lm.opt.WorkDir, newFID)
 			tbl = openTable(lm, sstName, builder)
 			if tbl == nil {

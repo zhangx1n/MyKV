@@ -40,7 +40,7 @@ type (
 )
 
 var (
-	head = []byte("!badger!head") // For storing value offset for replay.
+	head = []byte("!xvk!head") // For storing value offset for replay.
 )
 
 /**
