@@ -136,64 +136,54 @@ func (vlog *valueLog) open(db *DB, ptr *utils.ValuePtr, replayFn utils.LogEntry)
 	return nil
 }
 
-// 通过传入 vptr 来获取 vlog 中对应的数据.
+// Read reads the value log at a given location.
 // TODO: Make this read private.
 func (vlog *valueLog) read(vp *utils.ValuePtr) ([]byte, func(), error) {
-	// 通过传入的 vp 获取对应 fid 的 logfile 对象, 并通过 vtpr 的 offset 和 len 读取到数据.
 	buf, lf, err := vlog.readValueBytes(vp)
-	// 对 lf 进行加锁, 回调方法为释放锁.
+	// log file is locked so, decide whether to lock immediately or let the caller to
+	// unlock it, after caller uses it.
 	cb := vlog.getUnlockCallback(lf)
 	if err != nil {
 		return nil, cb, err
 	}
 
-	// 如果开启 checksum 校验, 则需要验证 crc 校验码.
 	if vlog.opt.VerifyValueChecksum {
-		// 获取 hash 计算器
 		hash := crc32.New(utils.CastagnoliCrcTable)
-		// 把 header + kv 写入到 hash 计算器
 		if _, err := hash.Write(buf[:len(buf)-crc32.Size]); err != nil {
 			utils.RunCallback(cb)
 			return nil, nil, errors.Wrapf(err, "failed to write hash for vp %+v", vp)
 		}
-		// 获取 checksum 校验码
+		// Fetch checksum from the end of the buffer.
 		checksum := buf[len(buf)-crc32.Size:]
-		// 如果通过 hash 计算的 crc 跟写入的 crc 不一致, 则返回异常.
 		if hash.Sum32() != utils.BytesToU32(checksum) {
 			utils.RunCallback(cb)
 			return nil, nil, errors.Wrapf(utils.ErrChecksumMismatch, "value corrupted for vp: %+v", vp)
 		}
 	}
 	var h utils.Header
-	// 通过 buf 解码 header, 并返回 header body length
 	headerLen := h.Decode(buf)
-	// headerLen 之后的数据就是 kv 和 crc 了
 	kv := buf[headerLen:]
-	// 不可能小于 klen + vlen 的数值
 	if uint32(len(kv)) < h.KLen+h.VLen {
 		fmt.Errorf("Invalid read: vp: %+v\n", vp)
 		return nil, nil, errors.Errorf("Invalid read: Len: %d read at:[%d:%d]",
 			len(kv), h.KLen, h.KLen+h.VLen)
 	}
-	// 根据 klen 和 vlen 计算出 value, 返回 value 和 释放 logfile 锁的回调方法.
 	return kv[h.KLen : h.KLen+h.VLen], cb, nil
 }
 
 // write 并不是并发安全的
 func (vlog *valueLog) write(reqs []*request) error {
-	//  需要检查是否能够正确写入，验证是否满足写的条件
+	//  需要检查是否能够正确写入
 	if err := vlog.validateWrites(reqs); err != nil {
 		return err
 	}
 
 	vlog.filesLock.RLock()
 	maxFid := vlog.maxFid
-	// 获取当前 fid 的 logfile 对象
 	curlf := vlog.filesMap[maxFid]
 	vlog.filesLock.RUnlock()
 
 	var buf bytes.Buffer
-	// 把数据写到缓冲 buffer 里.
 	flushWrites := func() error {
 		if buf.Len() == 0 {
 			return nil
@@ -208,21 +198,17 @@ func (vlog *valueLog) write(reqs []*request) error {
 		curlf.AddSize(vlog.writableLogOffset)
 		return nil
 	}
-	// 落盘方法
 	toDisk := func() error {
 		if err := flushWrites(); err != nil {
 			return err
 		}
 		// 切分vlog文件
-		// 如果超过了单个 vlog 的空间阈值或者 kv 个数, 则进行重建文件.
-		// ValueLogFileSize 默认为 1GB, ValueLogMaxEntries 默认为 100w 条.
 		if vlog.woffset() > uint32(vlog.opt.ValueLogFileSize) ||
 			vlog.numEntriesWritten > vlog.opt.ValueLogMaxEntries {
 			if err := curlf.DoneWriting(vlog.woffset()); err != nil {
 				return err
 			}
 
-			// 新建一个文件
 			newid := atomic.AddUint32(&vlog.maxFid, 1)
 			utils.CondPanic(newid <= 0, fmt.Errorf("newid has overflown uint32: %v", newid))
 			newlf, err := vlog.createVlogFile(newid)
@@ -236,12 +222,10 @@ func (vlog *valueLog) write(reqs []*request) error {
 	}
 	for i := range reqs {
 		b := reqs[i]
-		b.Ptrs = b.Ptrs[:0] // 把 slice len 置为 0.
+		b.Ptrs = b.Ptrs[:0]
 		var written int
-		// 遍历 request 的所有 kv entry.
 		for j := range b.Entries {
 			e := b.Entries[j]
-			// 不满足大 value 的阈值, 给个空 vtpr
 			if vlog.db.shouldWriteValueToLSM(e) {
 				b.Ptrs = append(b.Ptrs, &utils.ValuePtr{})
 				continue
@@ -251,7 +235,6 @@ func (vlog *valueLog) write(reqs []*request) error {
 			p.Fid = curlf.FID
 			// Use the offset including buffer length so far.
 			p.Offset = vlog.woffset() + uint32(buf.Len())
-			// 编码数据, 把 hedaer 和 kv 编码后写到传入的 buffer 里.
 			plen, err := curlf.EncodeEntry(e, &buf, p.Offset) // Now encode the entry into buffer.
 			if err != nil {
 				return err
@@ -318,6 +301,7 @@ func (vlog *valueLog) runGC(discardRatio float64, head *utils.ValuePtr) error {
 		}()
 
 		var err error
+		// 获取符合 GC 空间回收要求的 logfile 文件
 		files := vlog.pickLog(head)
 		if len(files) == 0 {
 			return utils.ErrNoRewrite
@@ -329,6 +313,7 @@ func (vlog *valueLog) runGC(discardRatio float64, head *utils.ValuePtr) error {
 				continue
 			}
 			tried[lf.FID] = true
+			// 执行 gc 空间回收
 			if err = vlog.doRunGC(lf, discardRatio); err == nil {
 				return nil
 			}
@@ -365,9 +350,10 @@ func (vlog *valueLog) doRunGC(lf *file.LogFile, discardRatio float64) (err error
 	return nil
 }
 
-// 重写
+// rewrite 重写方法用来实现 wisckey 论文里的垃圾回收, 也可以理解为空间的合并整理.
 func (vlog *valueLog) rewrite(f *file.LogFile) error {
 	vlog.filesLock.RLock()
+	// 获取最新的 valuelog fid
 	maxFid := vlog.maxFid
 	vlog.filesLock.RUnlock()
 	utils.CondPanic(uint32(f.FID) >= maxFid, fmt.Errorf("fid to move: %d. Current max fid: %d", f.FID, maxFid))
@@ -382,6 +368,7 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 			fmt.Printf("Processing entry %d\n", count)
 		}
 
+		// 从 lsm tree 里获取 key 的数据.
 		vs, err := vlog.db.lsm.Get(e.Key)
 		if err != nil {
 			return err
@@ -390,15 +377,20 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 			return nil
 		}
 
+		// 如果 lsm tree 的 value 为空, 则返回错误.
 		if len(vs.Value) == 0 {
 			return errors.Errorf("Empty value: %+v", vs)
 		}
+		// 解析 value 到 vptr 结构上, 得到 key 的 fid, len, offset 三个字段.
 		var vp utils.ValuePtr
 		vp.Decode(vs.Value)
 
+		// 如果从 lsm tree 中获取到的 fid 比当前 valueLog 的 fid 更新, 则忽略.
+		// 说明该 key 更新过, 老 vlog 的数据必然是旧的, 直接忽略即可.
 		if vp.Fid > f.FID {
 			return nil
 		}
+		// 如果 lsm tree 拿到的 vlog entry 的 offset 还大, 说明该 key 更新过, 该 vlog 里有更新的数据.
 		if vp.Offset > e.Offset {
 			return nil
 		}
@@ -417,7 +409,7 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 			// rewrite because we don't consider the value size. See #1292.
 			es += int64(len(e.Value))
 
-			// Ensure length and size of wb is within transaction limits.
+			// 满足 maxBatchCount 或者 maxBatchSize 时, 进行尝试批量写入.
 			if int64(len(wb)+1) >= vlog.opt.MaxBatchCount ||
 				size+es >= vlog.opt.MaxBatchSize {
 				if err := vlog.db.batchSet(wb); err != nil {
@@ -432,6 +424,7 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 		return nil
 	}
 
+	// logfile 实现了迭代器, 把数据依次传递到回调方法里.
 	_, err := vlog.iterate(f, 0, func(e *utils.Entry, vp *utils.ValuePtr) error {
 		return fe(e)
 	})
@@ -461,17 +454,18 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 		i += batchSize
 	}
 	var deleteFileNow bool
-	// Entries written to LSM. Remove the older file now.
+	// 既然这个 value log 的数据整理完了, 那么就可以删除这个 value log 了.
 	{
 		vlog.filesLock.Lock()
-		// Just a sanity-check.
+		// 如果已删除, 直接跳出
 		if _, ok := vlog.filesMap[f.FID]; !ok {
 			vlog.filesLock.Unlock()
 			return errors.Errorf("Unable to find fid: %d", f.FID)
 		}
+		// 如果 count 为 0 直接删除, 否则暂添加到 filesToBeDeleted 集合中, 后台再异步删除.
 		if vlog.iteratorCount() == 0 {
 			delete(vlog.filesMap, f.FID)
-			deleteFileNow = true
+			//deleteFileNow = true
 		} else {
 			vlog.filesToBeDeleted = append(vlog.filesToBeDeleted, f.FID)
 		}
@@ -567,7 +561,8 @@ func (vlog *valueLog) getUnlockCallback(lf *file.LogFile) func() {
 	return lf.Lock.RUnlock
 }
 
-// readValueBytes 用来获取 valuePointer 对应的 logfile 和对应的 value, 这里的 value 不是 key 真正的 value,
+// readValueBytes return vlog entry slice and read locked log file. Caller should take care of
+// logFile unlocking. 用来获取 valuePointer 对应的 logfile 和对应的 value, 这里的 value 不是 key 真正的 value,
 // 而是 log entry, 含有 header、key、value、crc32 的结构体.
 func (vlog *valueLog) readValueBytes(vp *utils.ValuePtr) ([]byte, *file.LogFile, error) {
 	lf, err := vlog.getFileRLocked(vp)
@@ -594,7 +589,6 @@ func (vlog *valueLog) getFileRLocked(vp *utils.ValuePtr) (*file.LogFile, error) 
 	maxFid := vlog.maxFid
 	if vp.Fid == maxFid {
 		currentOffset := vlog.woffset()
-		// vptr 的 offset 偏移量大于当前 vlog 的最大 offset, 返回异常.
 		if vp.Offset >= currentOffset {
 			return nil, errors.Errorf(
 				"Invalid value pointer offset: %d greater than current offset: %d",
@@ -1004,11 +998,6 @@ func (vlog *valueLog) sync(fid uint32) error {
 	return err
 }
 
-// StartGC
-func (v *valueLog) startGC() {
-
-}
-
 // Set
 func (v *valueLog) set(entry *utils.Entry) error {
 	return nil
@@ -1133,7 +1122,7 @@ func (vlog *valueLog) pickLog(head *utils.ValuePtr) (files []*file.LogFile) {
 		discard int64
 	}{math.MaxUint32, 0}
 	// 加锁遍历fids，选择小于等于head fid的列表中discard统计最大的那个log文件
-	// discard 就是在compact过程中统计的可丢弃key的数量
+	// discard 就是在compact过程中统计的可丢弃key的数量，discard 值的代表 vlog 文件中的脏数据占用的空间大小.
 	vlog.lfDiscardStats.RLock()
 	for _, fid := range fids {
 		if fid >= head.Fid {
@@ -1182,7 +1171,7 @@ func (vlog *valueLog) sample(samp *sampler, discardRatio float64) (*reason, erro
 	sizePercent := samp.sizeRatio
 	countPercent := samp.countRatio
 	fileSize := samp.lf.Size()
-	// Set up the sampling window sizes.
+	// Set up the sampling winxdow sizes.
 	sizeWindow := float64(fileSize) * sizePercent
 	sizeWindowM := sizeWindow / (1 << 20) // in MBs.
 	countWindow := int(float64(vlog.opt.ValueLogMaxEntries) * countPercent)

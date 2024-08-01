@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"time"
 	"unsafe"
 )
 
@@ -68,4 +69,8 @@ func MemHashString(str string) uint64 {
 // SafeCopy does append(a[:0], src...).
 func SafeCopy(a, src []byte) []byte {
 	return append(a[:0], src...)
+}
+
+func NewCurVersion() uint64 {
+	return uint64(time.Now().UnixNano() / 1e9)
 }

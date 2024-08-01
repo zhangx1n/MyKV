@@ -61,29 +61,29 @@ NumCompactors:       3,
 func Open(opt *Options) *DB {
 	c := utils.NewCloser()
 	db := &DB{opt: opt}
+	// 初始化vlog结构
+	db.initVLog()
 	// 初始化LSM结构
 	db.lsm = lsm.NewLSM(&lsm.Options{
 		WorkDir:             opt.WorkDir,
 		MemTableSize:        opt.MemTableSize,
 		SSTableMaxSz:        opt.SSTableMaxSz,
-		BlockSize:           4 * 1024,
+		BlockSize:           8 * 1024,
 		BloomFalsePositive:  0, //0.01,
 		BaseLevelSize:       10 << 20,
 		LevelSizeMultiplier: 10,
-		BaseTableSize:       2 << 20,
+		BaseTableSize:       5 << 20,
 		TableSizeMultiplier: 2,
 		NumLevelZeroTables:  15,
 		MaxLevelNum:         7,
-		NumCompactors:       3,
+		NumCompactors:       1,
+		DiscardStatsCh:      &(db.vlog.lfDiscardStats.flushChan),
 	})
-	// 初始化vlog结构
-	db.initVLog()
 	// 初始化统计信息
 	db.stats = newStats(opt)
 	// 启动 sstable 的合并压缩过程
 	go db.lsm.StartCompacter()
-	// 启动 vlog gc 过程
-	go db.vlog.startGC()
+	// 准备vlog gc
 	c.Add(1)
 	db.writeCh = make(chan *request)
 	db.flushChan = make(chan flushTask, 16)
@@ -116,12 +116,16 @@ func (db *DB) Del(key []byte) error {
 	})
 }
 func (db *DB) Set(data *utils.Entry) error {
+	if data == nil || len(data.Key) == 0 {
+		return utils.ErrEmptyKey
+	}
 	// 做一些必要性的检查
 	// 如果value 大于一个阈值 则创建值指针，并将其写入vlog中
 	var (
 		vp  *utils.ValuePtr
 		err error
 	)
+	data.Key = utils.KeyWithTs(data.Key, math.MaxUint32)
 	// 如果value不应该直接写入LSM 则先写入 vlog文件，这时必须保证vlog具有重放功能
 	// 以便于崩溃后恢复数据
 	if !db.shouldWriteValueToLSM(data) {
@@ -134,10 +138,14 @@ func (db *DB) Set(data *utils.Entry) error {
 	return db.lsm.Set(data)
 }
 func (db *DB) Get(key []byte) (*utils.Entry, error) {
+	if len(key) == 0 {
+		return nil, utils.ErrEmptyKey
+	}
 	var (
 		entry *utils.Entry
 		err   error
 	)
+	key = utils.KeyWithTs(key, math.MaxUint32)
 	// 从LSM中查询entry，这时不确定entry是不是值指针
 	if entry, err = db.lsm.Get(key); err != nil {
 		return entry, err
@@ -153,14 +161,17 @@ func (db *DB) Get(key []byte) (*utils.Entry, error) {
 		}
 		entry.Value = utils.SafeCopy(nil, result)
 	}
+	entry.Key = utils.ParseKey(entry.Key)
 	return entry, nil
 }
+
 func (db *DB) Info() *Stats {
 	// 读取stats结构，打包数据并返回
 	return db.stats
 }
 
-// RunValueLogGC triggers a value log garbage collection.
+// RunValueLogGC 进行 wisckey vlog 垃圾回收的入口方法, 其内部会判断 ratio 值的合理性,
+// 数值需要在 `0 - 1` 之间. 参考 badger 文档中有使用 `0.7` 作为 discardRatio 比率.
 func (db *DB) RunValueLogGC(discardRatio float64) error {
 	if discardRatio >= 1.0 || discardRatio <= 0.0 {
 		return utils.ErrInvalidRequest
@@ -216,10 +227,7 @@ func (db *DB) sendToWriteCh(entries []*utils.Entry) (*request, error) {
 	return req, nil
 }
 
-// batchSet applies a list of badger.Entry. If a request level error occurs it
-// will be returned.
-//
-//	Check(kv.BatchSet(entries))
+// Check(kv.BatchSet(entries))
 func (db *DB) batchSet(entries []*utils.Entry) error {
 	req, err := db.sendToWriteCh(entries)
 	if err != nil {
@@ -331,9 +339,6 @@ func (db *DB) writeRequests(reqs []*request) error {
 	return nil
 }
 func (db *DB) writeToLSM(b *request) error {
-	// We should check the length of b.Prts and b.Entries only when badger is not
-	// running in InMemory mode. In InMemory mode, we don't write anything to the
-	// value log and that's why the length of b.Ptrs will always be zero.
 	if len(b.Ptrs) != len(b.Entries) {
 		return errors.Errorf("Ptrs and Entries don't match: %+v", b)
 	}
@@ -382,7 +387,6 @@ func (db *DB) pushHead(ft flushTask) error {
 		return errors.New("Head should not be zero")
 	}
 
-	// Store badger head even if vptr is zero, need it for readTs
 	fmt.Printf("Storing value log head: %+v\n", ft.vptr)
 	val := ft.vptr.Encode()
 
