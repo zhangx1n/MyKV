@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -52,6 +54,20 @@ func Benchmark_SkipListBasicCRUD(b *testing.B) {
 		searchVal := list.Search([]byte(key))
 		assert.Equal(b, searchVal.Value, []byte(val))
 	}
+}
+
+func TestDrawList(t *testing.T) {
+	list := NewSkiplist(1000)
+	n := 12
+	for i := 0; i < n; i++ {
+		index := strconv.Itoa(r.Intn(90) + 10)
+		key := index + RandString(8)
+		entryRand := NewEntry([]byte(key), []byte(index))
+		list.Add(entryRand)
+	}
+	list.Draw(true)
+	fmt.Println(strings.Repeat("*", 30) + "分割线" + strings.Repeat("*", 30))
+	list.Draw(false)
 }
 
 func TestConcurrentBasic(t *testing.T) {
@@ -108,7 +124,7 @@ func Benchmark_ConcurrentBasic(b *testing.B) {
 			defer wg.Done()
 			v := l.Search(key(i))
 			require.EqualValues(b, key(i), v.Value)
-			require.Nil(b, v)
+			require.NotNil(b, v)
 		}(i)
 	}
 	wg.Wait()
