@@ -115,6 +115,7 @@ func (db *DB) Del(key []byte) error {
 		ExpiresAt: 0,
 	})
 }
+
 func (db *DB) Set(data *utils.Entry) error {
 	if data == nil || len(data.Key) == 0 {
 		return utils.ErrEmptyKey
@@ -137,6 +138,7 @@ func (db *DB) Set(data *utils.Entry) error {
 	}
 	return db.lsm.Set(data)
 }
+
 func (db *DB) Get(key []byte) (*utils.Entry, error) {
 	if len(key) == 0 {
 		return nil, utils.ErrEmptyKey
@@ -161,8 +163,23 @@ func (db *DB) Get(key []byte) (*utils.Entry, error) {
 		}
 		entry.Value = utils.SafeCopy(nil, result)
 	}
-	entry.Key = utils.ParseKey(entry.Key)
+
+	if isDeletedOrExpired(entry) {
+		return nil, utils.ErrKeyNotFound
+	}
 	return entry, nil
+}
+
+// 判断是否过期 是可删除
+func isDeletedOrExpired(e *utils.Entry) bool {
+	if e.Value == nil {
+		return true
+	}
+	if e.ExpiresAt == 0 {
+		return false
+	}
+
+	return e.ExpiresAt <= uint64(time.Now().Unix())
 }
 
 func (db *DB) Info() *Stats {
@@ -376,7 +393,7 @@ func (req *request) Wait() error {
 
 // 结构体
 type flushTask struct {
-	mt           *utils.SkipList
+	mt           *utils.Skiplist
 	vptr         *utils.ValuePtr
 	dropPrefixes [][]byte
 }

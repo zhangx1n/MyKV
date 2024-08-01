@@ -24,7 +24,7 @@ import (
 
 const discardStatsFlushThreshold = 100
 
-var lfDiscardStatsKey = []byte("!xkv!discard") // For storing lfDiscardStats
+var lfDiscardStatsKey = []byte("!kv!discard") // For storing lfDiscardStats
 
 // valueLog
 type valueLog struct {
@@ -301,7 +301,6 @@ func (vlog *valueLog) runGC(discardRatio float64, head *utils.ValuePtr) error {
 		}()
 
 		var err error
-		// 获取符合 GC 空间回收要求的 logfile 文件
 		files := vlog.pickLog(head)
 		if len(files) == 0 {
 			return utils.ErrNoRewrite
@@ -313,7 +312,6 @@ func (vlog *valueLog) runGC(discardRatio float64, head *utils.ValuePtr) error {
 				continue
 			}
 			tried[lf.FID] = true
-			// 执行 gc 空间回收
 			if err = vlog.doRunGC(lf, discardRatio); err == nil {
 				return nil
 			}
@@ -350,10 +348,9 @@ func (vlog *valueLog) doRunGC(lf *file.LogFile, discardRatio float64) (err error
 	return nil
 }
 
-// rewrite 重写方法用来实现 wisckey 论文里的垃圾回收, 也可以理解为空间的合并整理.
+// 重写
 func (vlog *valueLog) rewrite(f *file.LogFile) error {
 	vlog.filesLock.RLock()
-	// 获取最新的 valuelog fid
 	maxFid := vlog.maxFid
 	vlog.filesLock.RUnlock()
 	utils.CondPanic(uint32(f.FID) >= maxFid, fmt.Errorf("fid to move: %d. Current max fid: %d", f.FID, maxFid))
@@ -368,7 +365,6 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 			fmt.Printf("Processing entry %d\n", count)
 		}
 
-		// 从 lsm tree 里获取 key 的数据.
 		vs, err := vlog.db.lsm.Get(e.Key)
 		if err != nil {
 			return err
@@ -377,20 +373,15 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 			return nil
 		}
 
-		// 如果 lsm tree 的 value 为空, 则返回错误.
 		if len(vs.Value) == 0 {
 			return errors.Errorf("Empty value: %+v", vs)
 		}
-		// 解析 value 到 vptr 结构上, 得到 key 的 fid, len, offset 三个字段.
 		var vp utils.ValuePtr
 		vp.Decode(vs.Value)
 
-		// 如果从 lsm tree 中获取到的 fid 比当前 valueLog 的 fid 更新, 则忽略.
-		// 说明该 key 更新过, 老 vlog 的数据必然是旧的, 直接忽略即可.
 		if vp.Fid > f.FID {
 			return nil
 		}
-		// 如果 lsm tree 拿到的 vlog entry 的 offset 还大, 说明该 key 更新过, 该 vlog 里有更新的数据.
 		if vp.Offset > e.Offset {
 			return nil
 		}
@@ -409,7 +400,7 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 			// rewrite because we don't consider the value size. See #1292.
 			es += int64(len(e.Value))
 
-			// 满足 maxBatchCount 或者 maxBatchSize 时, 进行尝试批量写入.
+			// Ensure length and size of wb is within transaction limits.
 			if int64(len(wb)+1) >= vlog.opt.MaxBatchCount ||
 				size+es >= vlog.opt.MaxBatchSize {
 				if err := vlog.db.batchSet(wb); err != nil {
@@ -424,7 +415,6 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 		return nil
 	}
 
-	// logfile 实现了迭代器, 把数据依次传递到回调方法里.
 	_, err := vlog.iterate(f, 0, func(e *utils.Entry, vp *utils.ValuePtr) error {
 		return fe(e)
 	})
@@ -454,15 +444,14 @@ func (vlog *valueLog) rewrite(f *file.LogFile) error {
 		i += batchSize
 	}
 	var deleteFileNow bool
-	// 既然这个 value log 的数据整理完了, 那么就可以删除这个 value log 了.
+	// Entries written to LSM. Remove the older file now.
 	{
 		vlog.filesLock.Lock()
-		// 如果已删除, 直接跳出
+		// Just a sanity-check.
 		if _, ok := vlog.filesMap[f.FID]; !ok {
 			vlog.filesLock.Unlock()
 			return errors.Errorf("Unable to find fid: %d", f.FID)
 		}
-		// 如果 count 为 0 直接删除, 否则暂添加到 filesToBeDeleted 集合中, 后台再异步删除.
 		if vlog.iteratorCount() == 0 {
 			delete(vlog.filesMap, f.FID)
 			//deleteFileNow = true
@@ -562,8 +551,7 @@ func (vlog *valueLog) getUnlockCallback(lf *file.LogFile) func() {
 }
 
 // readValueBytes return vlog entry slice and read locked log file. Caller should take care of
-// logFile unlocking. 用来获取 valuePointer 对应的 logfile 和对应的 value, 这里的 value 不是 key 真正的 value,
-// 而是 log entry, 含有 header、key、value、crc32 的结构体.
+// logFile unlocking.
 func (vlog *valueLog) readValueBytes(vp *utils.ValuePtr) ([]byte, *file.LogFile, error) {
 	lf, err := vlog.getFileRLocked(vp)
 	if err != nil {
@@ -1122,7 +1110,7 @@ func (vlog *valueLog) pickLog(head *utils.ValuePtr) (files []*file.LogFile) {
 		discard int64
 	}{math.MaxUint32, 0}
 	// 加锁遍历fids，选择小于等于head fid的列表中discard统计最大的那个log文件
-	// discard 就是在compact过程中统计的可丢弃key的数量，discard 值的代表 vlog 文件中的脏数据占用的空间大小.
+	// discard 就是在compact过程中统计的可丢弃key的数量
 	vlog.lfDiscardStats.RLock()
 	for _, fid := range fids {
 		if fid >= head.Fid {

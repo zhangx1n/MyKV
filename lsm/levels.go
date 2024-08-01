@@ -47,6 +47,15 @@ func (lm *levelManager) close() error {
 	return nil
 }
 
+func (lm *levelManager) iterators() []utils.Iterator {
+
+	itrs := make([]utils.Iterator, 0, len(lm.levels))
+	for _, level := range lm.levels {
+		itrs = append(itrs, level.iterators()...)
+	}
+	return itrs
+}
+
 func (lm *levelManager) Get(key []byte) (*utils.Entry, error) {
 	var (
 		entry *utils.Entry
@@ -335,4 +344,18 @@ func (lh *levelHandler) deleteTables(toDel []*table) error {
 	// 去除 table 的引用关系, 并且删除 table
 	// 不用加锁, 因为其内部使用 atomic 原子操作.
 	return decrRefs(toDel)
+}
+
+func (lh *levelHandler) iterators() []utils.Iterator {
+	lh.RLock()
+	defer lh.RUnlock()
+	topt := &utils.Options{IsAsc: true}
+	if lh.levelNum == 0 {
+		return iteratorsReversed(lh.tables, topt)
+	}
+
+	if len(lh.tables) == 0 {
+		return nil
+	}
+	return []utils.Iterator{NewConcatIterator(lh.tables, topt)}
 }

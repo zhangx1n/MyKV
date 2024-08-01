@@ -225,7 +225,7 @@ func baseTest(t *testing.T, lsm *LSM, n int) {
 	e := &utils.Entry{
 		Key:       []byte("CRTS😁张欣MrGSBtL12345678"),
 		Value:     []byte("张欣 value"),
-		ExpiresAt: 0,
+		ExpiresAt: 123,
 	}
 	//caseList := make([]*utils.Entry, 0)
 	//caseList = append(caseList, e)

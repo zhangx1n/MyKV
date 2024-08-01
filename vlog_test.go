@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/stretchr/testify/require"
 	"github.com/zhangx1n/xkv/utils"
+	"math"
 	"math/rand"
 	"os"
 	"testing"
@@ -115,12 +116,11 @@ func TestValueGC(t *testing.T) {
 	kv.RunValueLogGC(0.9)
 	for _, e := range kvList {
 		item, err := kv.Get(e.Key)
-		t.Log(item)
 		require.NoError(t, err)
 		val := getItemValue(t, item)
 		require.NotNil(t, val)
-		require.True(t, bytes.Equal(item.Key, e.Key), "key not equal: e:%s, v:%s", e.Key, e.Key)
-		require.True(t, bytes.Equal(item.Value, e.Value), "value not equal: e:%s, v:%s", e.Value, e.Value)
+		require.True(t, bytes.Equal(item.Key, utils.KeyWithTs(e.Key, math.MaxUint32)), "key not equal: item:%s, e:%s", item.Key, e.Key)
+		require.True(t, bytes.Equal(item.Value, e.Value), "value not equal: item:%s, e:%s", item.Value, e.Value)
 	}
 }
 
