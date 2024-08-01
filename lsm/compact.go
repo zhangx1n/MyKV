@@ -1160,7 +1160,6 @@ func (r keyRange) equals(dst keyRange) bool {
 }
 
 func (r *keyRange) extend(kr keyRange) {
-	// TODO(ibrahim): Is this needed?
 	if kr.isEmpty() {
 		return
 	}
@@ -1183,7 +1182,6 @@ func (r keyRange) overlapsWith(dst keyRange) bool {
 	if r.isEmpty() {
 		return true
 	}
-	// TODO(ibrahim): Do you need this?
 	// Empty dst doesn't overlap with anything.
 	if dst.isEmpty() {
 		return false
