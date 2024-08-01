@@ -10,10 +10,6 @@ const (
 	cmDepth = 4
 )
 
-// cmSketch Count-Min Sketch
-// 考虑到每条数据访问次数大概很少，而且还有遗忘策略，不需要非常高的访问次数，我们可以用 4 个 bit 来统计它
-// 对每条数据用哈希映射到 块大小为 4 的 bitMap 上，但是可能会哈希冲突，如果我们每次都让其自然增加，那么它的频率会可能会大于实际频率
-// 但是这个问题并不会造成很大的影响，因为我们并不需要精确知道每个数字的出现频率，只需要知道其大概分布即可
 type cmSketch struct {
 	rows [cmDepth]cmRow
 	seed [cmDepth]uint64
@@ -25,9 +21,17 @@ func newCmSketch(numCounters int64) *cmSketch {
 		panic("cmSketch: invalid numCounters")
 	}
 
+	// numCounters 一定是二次幂，也就一定是1后面有 n 个 0
 	numCounters = next2Power(numCounters)
+	// mask 一定是0111...111
 	sketch := &cmSketch{mask: uint64(numCounters - 1)}
 	source := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// 初始化4行
+	// 0000,0000|0000,0000|0000,0000
+	// 0000,0000|0000,0000|0000,0000
+	// 0000,0000|0000,0000|0000,0000
+	// 0000,0000|0000,0000|0000,0000
 
 	for i := 0; i < cmDepth; i++ {
 		sketch.seed[i] = source.Uint64()
@@ -38,6 +42,7 @@ func newCmSketch(numCounters int64) *cmSketch {
 }
 
 func (s *cmSketch) Increment(hashed uint64) {
+	// 对于每一行进行相同操作
 	for i := range s.rows {
 		s.rows[i].increment((hashed ^ s.seed[i]) & s.mask)
 	}
@@ -69,6 +74,7 @@ func (s *cmSketch) Clear() {
 	}
 }
 
+// 快速计算大于 X，且最接近 X 的二次幂
 func next2Power(x int64) int64 {
 	x--
 	x |= x >> 1
