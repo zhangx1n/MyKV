@@ -152,6 +152,12 @@ func (t *table) block(idx int) (*block, error) {
 	readPos -= b.chkLen
 	b.checksum = b.data[readPos : readPos+b.chkLen]
 
+	b.data = b.data[:readPos]
+
+	if err = b.verifyCheckSum(); err != nil {
+		return nil, err
+	}
+
 	readPos -= 4
 	numEntries := int(utils.BytesToU32(b.data[readPos : readPos+4]))
 	entriesIndexStart := readPos - (numEntries * 4)
@@ -160,12 +166,6 @@ func (t *table) block(idx int) (*block, error) {
 	b.entryOffsets = utils.BytesToU32Slice(b.data[entriesIndexStart:entriesIndexEnd])
 
 	b.entriesIndexStart = entriesIndexStart
-
-	b.data = b.data[:readPos+4]
-
-	if err = b.verifyCheckSum(); err != nil {
-		return nil, err
-	}
 
 	t.lm.cache.blocks.Set(key, b)
 
@@ -303,6 +303,9 @@ func (it *tableIterator) Seek(key []byte) {
 	var ko pb.BlockOffset
 	idx := sort.Search(len(it.t.ss.Indexs().GetOffsets()), func(idx int) bool {
 		utils.CondPanic(!it.t.offsets(&ko, idx), fmt.Errorf("tableutils.Seek idx < 0 || idx > len(index.GetOffsets()"))
+		if idx == len(it.t.ss.Indexs().GetOffsets()) {
+			return true
+		}
 		return utils.CompareKeys(ko.GetKey(), key) > 0
 	})
 	if idx == 0 {
@@ -310,12 +313,6 @@ func (it *tableIterator) Seek(key []byte) {
 		return
 	}
 	it.seekHelper(idx-1, key)
-	if it.err == io.EOF {
-		if idx == len(it.t.ss.Indexs().Offsets) {
-			return
-		}
-		it.seekHelper(idx, key)
-	}
 }
 
 func (it *tableIterator) seekHelper(blockIdx int, key []byte) {
