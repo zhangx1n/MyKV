@@ -115,7 +115,8 @@ func TestValueGC(t *testing.T) {
 	}
 	kv.RunValueLogGC(0.9)
 	for _, e := range kvList {
-		item, err := kv.Get(e.Key)
+		// TODO: 这里 get 必须手动加上 withts
+		item, err := kv.Get(utils.KeyWithTs(e.Key, math.MaxUint32))
 		require.NoError(t, err)
 		val := getItemValue(t, item)
 		require.NotNil(t, val)
